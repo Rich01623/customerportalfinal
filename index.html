@@ -1402,6 +1402,46 @@
       font-size: 0.9rem;
     }
 
+    .message-attachment {
+      margin-top: 8px;
+      display: inline-flex;
+      flex-direction: column;
+      gap: 2px;
+      max-width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #bfdbfe;
+      border-radius: 7px;
+      background: #f8fbff;
+      color: #0f4c81;
+      text-decoration: none;
+      font-size: 0.86rem;
+      font-weight: 900;
+    }
+
+    .message-attachment:hover {
+      background: #e8f3ff;
+    }
+
+    .message-attachment small {
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 800;
+    }
+
+    .message-job-badge {
+      margin: 0 0 7px;
+      display: inline-flex;
+      align-items: center;
+      max-width: 100%;
+      border: 1px solid #f59e0b;
+      border-radius: 999px;
+      padding: 4px 9px;
+      background: #fffbeb;
+      color: #92400e;
+      font-size: 0.78rem;
+      font-weight: 900;
+    }
+
     .message-compose {
       flex: 0 0 auto;
       border-top: 1px solid var(--line);
@@ -1412,11 +1452,78 @@
       background: #fff;
     }
 
+    .message-compose-main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .message-job-link-row {
+      display: grid;
+      grid-template-columns: 76px minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+    }
+
+    .message-job-link-row label {
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .message-job-link-row select {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      padding: 8px;
+      font-weight: 800;
+      color: #111827;
+      background: #fff;
+    }
+
     .message-compose textarea {
       flex: 1;
       min-height: 70px;
       max-height: 130px;
       resize: vertical;
+    }
+
+    .message-file-btn {
+      border: 0;
+      border-radius: var(--radius-sm);
+      padding: 11px 13px;
+      background: #475569;
+      color: #fff;
+      font-weight: 900;
+      cursor: pointer;
+      font-size: 0.86rem;
+    }
+
+    .message-file-btn input {
+      display: none;
+    }
+
+    .message-selected-file {
+      min-height: 18px;
+      color: #334155;
+      font-size: 0.82rem;
+      font-weight: 800;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .message-selected-file button {
+      border: 0;
+      border-radius: var(--radius-sm);
+      padding: 3px 8px;
+      background: #e2e8f0;
+      color: #111827;
+      font-weight: 900;
+      cursor: pointer;
     }
 
     .message-empty {
@@ -2204,7 +2311,20 @@
             <div class="message-empty">Loading messages...</div>
           </div>
           <div class="message-compose">
-            <textarea id="portal-message-input" placeholder="Type your message to the planning team..."></textarea>
+            <div class="message-compose-main">
+              <div class="message-job-link-row">
+                <label for="portal-message-job-link">Link job</label>
+                <select id="portal-message-job-link" onchange="handlePortalMessageJobSelection()">
+                  <option value="">No linked job</option>
+                </select>
+              </div>
+              <textarea id="portal-message-input" placeholder="Type your message to the planning team..."></textarea>
+              <div id="portal-message-selected-file" class="message-selected-file"></div>
+            </div>
+            <label class="message-file-btn">
+              Attach file
+              <input id="portal-message-file" type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="handlePortalMessageFileChange()">
+            </label>
             <button type="button" class="action-btn primary" id="portal-message-send-btn" onclick="sendPortalMessage()">Send</button>
           </div>
         </div>
@@ -2314,7 +2434,11 @@
     const BOOKING_REQUESTS_TABLE = "booking_requests";
     const CLIENT_BOOKING_TEMPLATES_TABLE = "client_booking_templates";
     const PORTAL_MESSAGES_TABLE = "portal_messages";
+    const PORTAL_PRESENCE_TABLE = "portal_client_presence";
+    const MESSAGE_ATTACHMENT_BUCKET = "portal-message-files";
+    const MESSAGE_ATTACHMENT_MAX_MB = 15;
     const MESSAGE_POLL_INTERVAL_MS = 30000;
+    const PORTAL_PRESENCE_INTERVAL_MS = 45000;
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const loginView = document.getElementById("login-view");
@@ -2380,6 +2504,9 @@
     const messagesStatus = document.getElementById("messages-status");
     const portalMessageFeed = document.getElementById("portal-message-feed");
     const portalMessageInput = document.getElementById("portal-message-input");
+    const portalMessageJobSelect = document.getElementById("portal-message-job-link");
+    const portalMessageFileInput = document.getElementById("portal-message-file");
+    const portalMessageSelectedFile = document.getElementById("portal-message-selected-file");
     const portalMessageSendButton = document.getElementById("portal-message-send-btn");
     const portalMessageUnreadBadge = document.getElementById("portal-message-unread");
     const customerSuggestionsBox = document.getElementById("cust-suggestions");
@@ -2414,7 +2541,9 @@
     let homeSnapshotRequestId = 0;
     let currentTemplates = [];
     let portalMessagesRaw = [];
+    let selectedPortalMessageJobId = "";
     let portalMessagePollTimer = null;
+    let portalPresenceTimer = null;
     let clientAccountProfileEmail = "";
     let clientAccountProfile = null;
     let portalAccessCheckToken = 0;
@@ -2803,7 +2932,7 @@
       try {
         const saved = localStorage.getItem(ACTIVE_VIEW_STORAGE_KEY);
         if (saved === "previous") return "active";
-        return ["home", "form", "requests", "active", "history", "quote", "templates", "settings", "contact", "terms"].includes(saved) ? saved : "home";
+        return ["home", "form", "requests", "active", "history", "quote", "templates", "messages", "settings", "contact", "terms"].includes(saved) ? saved : "home";
       } catch (error) {
         return "home";
       }
@@ -2811,7 +2940,7 @@
 
     function restoreRememberedView() {
       const view = getRememberedView();
-      if (view === "form") openPlaceholderSection("quote");
+      if (view === "form") openBookingForm(false);
       else if (view === "requests") openBookingStatusView();
       else if (view === "active" || view === "history") openPreviousBookingsView(view);
       else if (view === "quote") openPlaceholderSection("quote");
@@ -2836,6 +2965,7 @@
       currentPreviousBookingEdit = null;
       portalMessagesRaw = [];
       stopPortalMessagePolling();
+      stopPortalPresenceHeartbeat();
       if (homeClockTimer) {
         clearInterval(homeClockTimer);
         homeClockTimer = null;
@@ -2928,6 +3058,7 @@
       clientAccountProfile = authorisedProfile;
       loadCurrentClientAccountProfileForQuote();
       startPortalMessagePolling();
+      startPortalPresenceHeartbeat();
       restoreRememberedView();
     }
 
@@ -2943,6 +3074,7 @@
     }
 
     async function signOutClient() {
+      await updatePortalPresence(false);
       await sb.auth.signOut();
     }
 
@@ -3004,6 +3136,7 @@
       hideAppViews();
       messagesView.classList.remove("hidden");
       setMessagesStatus("", "");
+      ensurePortalMessageJobOptions();
       loadPortalMessages(false);
     }
 
@@ -3030,6 +3163,198 @@
       portalMessageUnreadBadge.classList.toggle("hidden", !unread);
     }
 
+    function getPortalMessageJobLabel(row) {
+      if (!row) return "";
+      const fts = getPreviousFtsNumber(row) || row.fts_invoice_number || row.job_number || `Job ${row.id || ""}`;
+      const from = row.coll_postcode || row.coll_town || "Collection";
+      const to = row.del_postcode || row.del_town || "Delivery";
+      const rawDate = row.coll_datetime || row.del_datetime || row.created_at || "";
+      const date = rawDate ? formatDisplayDate(rawDate).split(" ")[0] : "";
+      return [fts, `${from} to ${to}`, date].filter(Boolean).join(" | ");
+    }
+
+    function getPortalMessageJobRows() {
+      const rows = new Map();
+      (previousBookingRows || []).forEach((row) => {
+        if (!row) return;
+        const key = String(row.id || row.fts_invoice_number || row.job_number || "").trim();
+        if (!key || rows.has(key)) return;
+        rows.set(key, row);
+      });
+      return Array.from(rows.values()).sort((a, b) => {
+        const aDate = getPreviousBookingDateValue(a);
+        const bDate = getPreviousBookingDateValue(b);
+        return bDate - aDate;
+      });
+    }
+
+    function renderPortalMessageJobOptions() {
+      if (!portalMessageJobSelect) return;
+      const rows = getPortalMessageJobRows();
+      const selected = selectedPortalMessageJobId || portalMessageJobSelect.value || "";
+      portalMessageJobSelect.innerHTML = `<option value="">No linked job</option>` + rows.map((row) => {
+        const value = String(row.id || row.fts_invoice_number || row.job_number || "");
+        return `<option value="${escapeHtml(value)}">${escapeHtml(getPortalMessageJobLabel(row))}</option>`;
+      }).join("");
+      if (selected && rows.some((row) => String(row.id || row.fts_invoice_number || row.job_number || "") === String(selected))) {
+        portalMessageJobSelect.value = selected;
+      } else {
+        selectedPortalMessageJobId = "";
+        portalMessageJobSelect.value = "";
+      }
+    }
+
+    async function ensurePortalMessageJobOptions() {
+      if (!currentUserEmail || previousBookingRows.length) {
+        renderPortalMessageJobOptions();
+        return;
+      }
+      try {
+        const { data, error } = await sb.rpc("lookup_previous_bookings", { request_email: currentUserEmail });
+        if (error) throw error;
+        previousBookingRows = await addPodUrlsToPreviousRows(data || []);
+      } catch (error) {
+        console.warn("Could not load bookings for message job linking:", error);
+      }
+      renderPortalMessageJobOptions();
+    }
+
+    function getSelectedPortalMessageJob() {
+      const selected = String(portalMessageJobSelect && portalMessageJobSelect.value || selectedPortalMessageJobId || "").trim();
+      if (!selected) return null;
+      return (previousBookingRows || []).find((row) =>
+        String(row.id || "") === selected
+        || String(row.fts_invoice_number || "") === selected
+        || String(row.job_number || "") === selected
+      ) || null;
+    }
+
+    function getMessageSafeRelatedJobId(value) {
+      const raw = String(value || "").trim();
+      if (!/^\d+$/.test(raw)) return null;
+      const numberValue = Number(raw);
+      return Number.isSafeInteger(numberValue) ? numberValue : raw;
+    }
+
+    function getPortalMessageLinkedJobPayload() {
+      const row = getSelectedPortalMessageJob();
+      if (!row) return {};
+      const ftsNumber = String(row.fts_invoice_number || row.job_number || row.reference || "").trim();
+      const payload = {};
+      if (ftsNumber) payload.fts_invoice_number = ftsNumber;
+      const relatedJobId = getMessageSafeRelatedJobId(row.id);
+      if (relatedJobId !== null) payload.related_job_id = relatedJobId;
+      return payload;
+    }
+
+    function handlePortalMessageJobSelection() {
+      selectedPortalMessageJobId = String(portalMessageJobSelect && portalMessageJobSelect.value || "").trim();
+    }
+
+    function clearPortalMessageJobLink() {
+      selectedPortalMessageJobId = "";
+      if (portalMessageJobSelect) portalMessageJobSelect.value = "";
+    }
+
+    function renderMessageJobBadge(message) {
+      const label = String(message && (message.fts_invoice_number || (message.related_job_id ? `Job ${message.related_job_id}` : "")) || "").trim();
+      return label ? `<span class="message-job-badge">Linked job: ${escapeHtml(label)}</span>` : "";
+    }
+
+    async function openMessagesForJob(id) {
+      selectedPortalMessageJobId = String(id || "").trim();
+      openMessagesView();
+      await ensurePortalMessageJobOptions();
+      if (portalMessageJobSelect && selectedPortalMessageJobId) portalMessageJobSelect.value = selectedPortalMessageJobId;
+      if (portalMessageInput) portalMessageInput.focus();
+    }
+
+    function formatMessageFileSize(size) {
+      const bytes = Number(size || 0);
+      if (!bytes || !Number.isFinite(bytes)) return "";
+      if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+      if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+      return `${bytes} bytes`;
+    }
+
+    function renderMessageAttachment(message) {
+      const url = String(message && message.attachment_url || "").trim();
+      if (!url) return "";
+      const name = String(message.attachment_name || "").trim() || "Attachment";
+      const detail = [formatMessageFileSize(message.attachment_size), message.attachment_type].filter(Boolean).join(" | ");
+      return `
+        <a class="message-attachment" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" download="${escapeHtml(name)}">
+          <span>${escapeHtml(name)}</span>
+          ${detail ? `<small>${escapeHtml(detail)}</small>` : ""}
+        </a>
+      `;
+    }
+
+    function getSafeMessageStoragePart(value, fallback) {
+      return String(value || fallback || "message")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 80) || fallback || "message";
+    }
+
+    function getMessageAttachmentStoragePath(file, customerEmail) {
+      const safeEmail = getSafeMessageStoragePart(customerEmail, "customer");
+      const safeName = getSafeMessageStoragePart(file && file.name, "attachment");
+      return `messages/${safeEmail}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeName}`;
+    }
+
+    async function uploadMessageAttachmentToStorage(file, customerEmail) {
+      if (!file) return null;
+      if (file.size > MESSAGE_ATTACHMENT_MAX_MB * 1024 * 1024) {
+        throw new Error(`This file is too large. Please choose a file under ${MESSAGE_ATTACHMENT_MAX_MB}MB.`);
+      }
+      const storagePath = getMessageAttachmentStoragePath(file, customerEmail);
+      const { error } = await sb.storage
+        .from(MESSAGE_ATTACHMENT_BUCKET)
+        .upload(storagePath, file, {
+          cacheControl: "3600",
+          contentType: file.type || "application/octet-stream",
+          upsert: false
+        });
+      if (error) throw error;
+      const publicResult = sb.storage.from(MESSAGE_ATTACHMENT_BUCKET).getPublicUrl(storagePath);
+      const publicUrl = publicResult && publicResult.data && publicResult.data.publicUrl;
+      if (!publicUrl) throw new Error("File uploaded, but no public URL was returned.");
+      return {
+        attachment_url: publicUrl,
+        attachment_name: file.name || "attachment",
+        attachment_type: file.type || "application/octet-stream",
+        attachment_size: file.size || null,
+        attachment_bucket: MESSAGE_ATTACHMENT_BUCKET,
+        attachment_path: storagePath
+      };
+    }
+
+    function renderPortalSelectedMessageFile() {
+      if (!portalMessageSelectedFile) return;
+      const file = portalMessageFileInput && portalMessageFileInput.files && portalMessageFileInput.files[0];
+      portalMessageSelectedFile.innerHTML = file
+        ? `<span>${escapeHtml(file.name)}${file.size ? ` (${escapeHtml(formatMessageFileSize(file.size))})` : ""}</span><button type="button" onclick="clearPortalMessageFile()">Remove</button>`
+        : "";
+    }
+
+    function clearPortalMessageFile() {
+      if (portalMessageFileInput) portalMessageFileInput.value = "";
+      renderPortalSelectedMessageFile();
+    }
+
+    function handlePortalMessageFileChange() {
+      const file = portalMessageFileInput && portalMessageFileInput.files && portalMessageFileInput.files[0];
+      if (file && file.size > MESSAGE_ATTACHMENT_MAX_MB * 1024 * 1024) {
+        setMessagesStatus(`This file is too large. Please choose a file under ${MESSAGE_ATTACHMENT_MAX_MB}MB.`, "warn");
+        clearPortalMessageFile();
+        return;
+      }
+      renderPortalSelectedMessageFile();
+    }
+
     function renderPortalMessages() {
       if (!portalMessageFeed) return;
       if (!portalMessagesRaw.length) {
@@ -3042,7 +3367,9 @@
         return `
           <div class="message-bubble ${senderType}">
             <div class="message-meta">${escapeHtml(senderName)} | ${escapeHtml(formatMessageTime(message.created_at))}</div>
-            <div class="message-text">${escapeHtml(message.message_text || "")}</div>
+            ${renderMessageJobBadge(message)}
+            ${message.message_text ? `<div class="message-text">${escapeHtml(message.message_text || "")}</div>` : ""}
+            ${renderMessageAttachment(message)}
           </div>
         `;
       }).join("");
@@ -3089,10 +3416,26 @@
       }
     }
 
+    function getPortalMessageSendErrorText(error) {
+      const raw = String(error && (error.message || error.error_description || error.details || error.hint) || error || "").trim();
+      const lower = raw.toLowerCase();
+      if (lower.includes("bucket") || lower.includes("storage")) {
+        return "Could not upload the file. Please check the Supabase message storage setup has been run. " + raw;
+      }
+      if (lower.includes("attachment_") || lower.includes("column") || lower.includes("schema cache")) {
+        return "Could not save the attachment details. Please run the updated portal messages SQL in Supabase. " + raw;
+      }
+      if (lower.includes("related_job_id") || lower.includes("bigint")) {
+        return "Could not save the job link. Please try again with no linked job, or refresh and retry. " + raw;
+      }
+      return raw ? `Could not send message: ${raw}` : "Could not send message. Please try again.";
+    }
+
     async function sendPortalMessage() {
       const text = String(portalMessageInput && portalMessageInput.value || "").trim();
-      if (!text) {
-        setMessagesStatus("Type a message before sending.", "warn");
+      const file = portalMessageFileInput && portalMessageFileInput.files && portalMessageFileInput.files[0];
+      if (!text && !file) {
+        setMessagesStatus("Type a message or attach a file before sending.", "warn");
         return;
       }
       if (!currentUserEmail) {
@@ -3100,30 +3443,34 @@
         return;
       }
 
-      const payload = {
-        customer_email: currentUserEmail,
-        customer_name: getPortalCustomerName(),
-        sender_type: "customer",
-        sender_name: getPortalCustomerName(),
-        message_text: text,
-        read_by_planner: false,
-        read_by_customer: true
-      };
-
       if (portalMessageSendButton) {
         portalMessageSendButton.disabled = true;
-        portalMessageSendButton.textContent = "Sending...";
+        portalMessageSendButton.textContent = file ? "Uploading..." : "Sending...";
       }
 
       try {
+        const attachmentPayload = file ? await uploadMessageAttachmentToStorage(file, currentUserEmail) : null;
+        const payload = {
+          customer_email: currentUserEmail,
+          customer_name: getPortalCustomerName(),
+          sender_type: "customer",
+          sender_name: getPortalCustomerName(),
+          message_text: text || (file ? `Attached file: ${file.name || "attachment"}` : ""),
+          read_by_planner: false,
+          read_by_customer: true,
+          ...getPortalMessageLinkedJobPayload(),
+          ...(attachmentPayload || {})
+        };
         const { error } = await sb.from(PORTAL_MESSAGES_TABLE).insert([payload]);
         if (error) throw error;
         if (portalMessageInput) portalMessageInput.value = "";
+        clearPortalMessageFile();
+        clearPortalMessageJobLink();
         setMessagesStatus("Message sent.", "ok");
         await loadPortalMessages(true);
       } catch (error) {
         console.error("Could not send message:", error);
-        setMessagesStatus("Could not send message. Please try again.", "error");
+        setMessagesStatus(getPortalMessageSendErrorText(error), "error");
       } finally {
         if (portalMessageSendButton) {
           portalMessageSendButton.disabled = false;
@@ -3141,6 +3488,32 @@
     function stopPortalMessagePolling() {
       if (portalMessagePollTimer) clearInterval(portalMessagePollTimer);
       portalMessagePollTimer = null;
+    }
+
+    async function updatePortalPresence(isOnline = true) {
+      const email = String(currentUserEmail || "").trim().toLowerCase();
+      if (!email) return;
+      try {
+        await sb.from(PORTAL_PRESENCE_TABLE).upsert({
+          customer_email: email,
+          customer_name: getPortalCustomerName(),
+          last_seen_at: new Date().toISOString(),
+          is_online: !!isOnline
+        }, { onConflict: "customer_email" });
+      } catch (error) {
+        console.warn("Could not update portal presence:", error);
+      }
+    }
+
+    function startPortalPresenceHeartbeat() {
+      stopPortalPresenceHeartbeat();
+      updatePortalPresence(true);
+      portalPresenceTimer = setInterval(() => updatePortalPresence(true), PORTAL_PRESENCE_INTERVAL_MS);
+    }
+
+    function stopPortalPresenceHeartbeat() {
+      if (portalPresenceTimer) clearInterval(portalPresenceTimer);
+      portalPresenceTimer = null;
     }
 
     function cancelBookingForm() {
@@ -5110,6 +5483,7 @@
         const podThumbnail = renderPreviousPodThumbnail(podUrl);
         const editButton = canEditPreviousBooking(row) ? `<button type="button" class="edit-result-btn previous-pill" onclick="editPreviousBooking('${escapeHtml(row.id)}')">Edit</button>` : "";
         const progressButton = `<button type="button" class="edit-result-btn previous-pill" onclick="openProgressModal('${escapeHtml(row.id)}')">View Progress</button>`;
+        const messageButton = `<button type="button" class="edit-result-btn previous-pill" onclick="openMessagesForJob('${escapeHtml(row.id)}')">Message</button>`;
         const price = String(row.total_price || "").toUpperCase() === "PFJ" ? "PFJ" : (row.total_price ? "&pound;" + escapeHtml(row.total_price) : "-");
         const ftsNumber = getPreviousFtsNumber(row) || "FTS pending";
         return `
@@ -5121,6 +5495,7 @@
                 ${podButton}
                 ${editButton}
                 ${progressButton}
+                ${messageButton}
               </span>
             </div>
             <div class="booking-result-grid">
@@ -5196,6 +5571,7 @@
               <div class="booking-slim-cell" title="${formatDisplayDate(row.del_datetime || row.delivery_datetime)}">${formatDisplayDate(row.del_datetime || row.delivery_datetime)}</div>
               <div class="booking-slim-action-cell">
                 <button type="button" class="booking-slim-eye-btn" aria-label="View progress" title="View progress" onclick="event.stopPropagation(); openProgressModal('${escapeHtml(rowId)}')">&#128065;</button>
+                <button type="button" class="booking-slim-eye-btn" aria-label="Message about job" title="Message about job" onclick="event.stopPropagation(); openMessagesForJob('${escapeHtml(rowId)}')">Msg</button>
               </div>
             </div>
             ${detail}`;
@@ -5309,6 +5685,7 @@
         if (error) throw error;
         previousBookingRows = await addPodUrlsToPreviousRows(data || []);
         refreshPreviousBookingDisplay();
+        if (!messagesView.classList.contains("hidden")) renderPortalMessageJobOptions();
       } catch (error) {
         const message = error && error.message ? error.message : String(error);
         setPreviousStatus(`Unable to check ${sectionName}: ` + message, "error");
@@ -5420,6 +5797,10 @@
 
     document.addEventListener("click", (event) => {
       if (!event.target.closest(".autocomplete-wrap")) hideCustomerSuggestions();
+    });
+
+    window.addEventListener("beforeunload", () => {
+      updatePortalPresence(false);
     });
 
     document.addEventListener("DOMContentLoaded", () => {
