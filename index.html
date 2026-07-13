@@ -1402,6 +1402,18 @@
       font-size: 0.9rem;
     }
 
+    .message-read-status {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 0.74rem;
+      font-weight: 900;
+      text-align: right;
+    }
+
+    .message-read-status.read {
+      color: #16a34a;
+    }
+
     .message-attachment {
       margin-top: 8px;
       display: inline-flex;
@@ -2318,7 +2330,7 @@
                   <option value="">No linked job</option>
                 </select>
               </div>
-              <textarea id="portal-message-input" placeholder="Type your message to the planning team..."></textarea>
+              <textarea id="portal-message-input" placeholder="Type your message to the planning team..." onkeydown="handlePortalMessageInputKeydown(event)"></textarea>
               <div id="portal-message-selected-file" class="message-selected-file"></div>
             </div>
             <label class="message-file-btn">
@@ -2436,8 +2448,10 @@
     const PORTAL_MESSAGES_TABLE = "portal_messages";
     const PORTAL_PRESENCE_TABLE = "portal_client_presence";
     const MESSAGE_ATTACHMENT_BUCKET = "portal-message-files";
+    const MESSAGE_ATTACHMENT_FALLBACK_BUCKETS = ["portal-message-files", "pods", "pod-uploads"];
     const MESSAGE_ATTACHMENT_MAX_MB = 15;
-    const MESSAGE_POLL_INTERVAL_MS = 30000;
+    const MESSAGE_INLINE_ATTACHMENT_MAX_MB = 1.5;
+    const MESSAGE_POLL_INTERVAL_MS = 10000;
     const PORTAL_PRESENCE_INTERVAL_MS = 45000;
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -3290,6 +3304,19 @@
       `;
     }
 
+    function renderMessageText(value) {
+      const text = String(value || "").trim();
+      if (!text) return "";
+      const linked = escapeHtml(text).replace(/(https?:\/\/[^\s<]+)/g, `<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>`);
+      return `<div class="message-text">${linked}</div>`;
+    }
+
+    function renderPortalMessageReadStatus(message) {
+      if (String(message && message.sender_type || "").toLowerCase() !== "customer") return "";
+      const read = !!(message && message.read_by_planner);
+      return `<div class="message-read-status ${read ? "read" : ""}">${read ? "Message read" : "Message sent"}</div>`;
+    }
+
     function getSafeMessageStoragePart(value, fallback) {
       return String(value || fallback || "message")
         .trim()
@@ -3305,31 +3332,96 @@
       return `messages/${safeEmail}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeName}`;
     }
 
+    function getPortalSupabaseErrorText(error) {
+      if (!error) return "";
+      const parts = [];
+      ["message", "error", "error_description", "details", "hint", "code", "statusCode", "status"].forEach((key) => {
+        if (error[key] !== undefined && error[key] !== null && String(error[key]).trim()) {
+          parts.push(String(error[key]).trim());
+        }
+      });
+      if (!parts.length && typeof error === "string") parts.push(error);
+      if (!parts.length) {
+        try {
+          const json = JSON.stringify(error);
+          if (json && json !== "{}") parts.push(json);
+        } catch (e) {}
+      }
+      return [...new Set(parts)].join(" | ");
+    }
+
     async function uploadMessageAttachmentToStorage(file, customerEmail) {
       if (!file) return null;
       if (file.size > MESSAGE_ATTACHMENT_MAX_MB * 1024 * 1024) {
         throw new Error(`This file is too large. Please choose a file under ${MESSAGE_ATTACHMENT_MAX_MB}MB.`);
       }
-      const storagePath = getMessageAttachmentStoragePath(file, customerEmail);
-      const { error } = await sb.storage
-        .from(MESSAGE_ATTACHMENT_BUCKET)
-        .upload(storagePath, file, {
-          cacheControl: "3600",
-          contentType: file.type || "application/octet-stream",
-          upsert: false
-        });
-      if (error) throw error;
-      const publicResult = sb.storage.from(MESSAGE_ATTACHMENT_BUCKET).getPublicUrl(storagePath);
-      const publicUrl = publicResult && publicResult.data && publicResult.data.publicUrl;
-      if (!publicUrl) throw new Error("File uploaded, but no public URL was returned.");
+      let lastError = null;
+      const buckets = [...new Set(MESSAGE_ATTACHMENT_FALLBACK_BUCKETS.filter(Boolean))];
+      for (const bucket of buckets) {
+        const storagePath = getMessageAttachmentStoragePath(file, customerEmail);
+        try {
+          const { error } = await sb.storage
+            .from(bucket)
+            .upload(storagePath, file, {
+              cacheControl: "3600",
+              contentType: file.type || "application/octet-stream",
+              upsert: false
+            });
+          if (error) throw error;
+          const publicResult = sb.storage.from(bucket).getPublicUrl(storagePath);
+          const publicUrl = publicResult && publicResult.data && publicResult.data.publicUrl;
+          if (!publicUrl) throw new Error(`File uploaded to ${bucket}, but no public URL was returned.`);
+          return {
+            attachment_url: publicUrl,
+            attachment_name: file.name || "attachment",
+            attachment_type: file.type || "application/octet-stream",
+            attachment_size: file.size || null,
+            attachment_bucket: bucket,
+            attachment_path: storagePath
+          };
+        } catch (error) {
+          lastError = error;
+          console.warn(`Message attachment upload failed for bucket ${bucket}:`, error);
+        }
+      }
+      throw new Error(`File upload failed in Supabase Storage. Tried buckets: ${buckets.join(", ")}. Last error: ${getPortalSupabaseErrorText(lastError) || "Unknown storage error"}`);
+    }
+
+    function readMessageFileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error || new Error("Could not read the selected file."));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function createInlineMessageAttachmentPayload(file) {
+      if (!file) return null;
+      if (file.size > MESSAGE_INLINE_ATTACHMENT_MAX_MB * 1024 * 1024) {
+        throw new Error(`Supabase Storage rejected the file upload and this file is too large for the emergency inline fallback. Please run the Supabase storage setup SQL, or try a file under ${MESSAGE_INLINE_ATTACHMENT_MAX_MB}MB.`);
+      }
+      const dataUrl = await readMessageFileAsDataUrl(file);
+      if (!dataUrl) throw new Error("The selected file could not be prepared for sending.");
       return {
-        attachment_url: publicUrl,
+        attachment_url: dataUrl,
         attachment_name: file.name || "attachment",
         attachment_type: file.type || "application/octet-stream",
         attachment_size: file.size || null,
-        attachment_bucket: MESSAGE_ATTACHMENT_BUCKET,
-        attachment_path: storagePath
+        attachment_bucket: "inline-message",
+        attachment_path: "",
+        __inlineFallback: true
       };
+    }
+
+    async function getPortalMessageAttachmentPayload(file, customerEmail) {
+      if (!file) return null;
+      try {
+        return await uploadMessageAttachmentToStorage(file, customerEmail);
+      } catch (storageError) {
+        console.warn("Supabase Storage rejected the message attachment, trying inline fallback:", storageError);
+        return await createInlineMessageAttachmentPayload(file);
+      }
     }
 
     function renderPortalSelectedMessageFile() {
@@ -3368,8 +3460,9 @@
           <div class="message-bubble ${senderType}">
             <div class="message-meta">${escapeHtml(senderName)} | ${escapeHtml(formatMessageTime(message.created_at))}</div>
             ${renderMessageJobBadge(message)}
-            ${message.message_text ? `<div class="message-text">${escapeHtml(message.message_text || "")}</div>` : ""}
+            ${renderMessageText(message.message_text)}
             ${renderMessageAttachment(message)}
+            ${renderPortalMessageReadStatus(message)}
           </div>
         `;
       }).join("");
@@ -3417,7 +3510,7 @@
     }
 
     function getPortalMessageSendErrorText(error) {
-      const raw = String(error && (error.message || error.error_description || error.details || error.hint) || error || "").trim();
+      const raw = getPortalSupabaseErrorText(error);
       const lower = raw.toLowerCase();
       if (lower.includes("bucket") || lower.includes("storage")) {
         return "Could not upload the file. Please check the Supabase message storage setup has been run. " + raw;
@@ -3429,6 +3522,93 @@
         return "Could not save the job link. Please try again with no linked job, or refresh and retry. " + raw;
       }
       return raw ? `Could not send message: ${raw}` : "Could not send message. Please try again.";
+    }
+
+    function isPortalMessageAttachmentColumnError(error) {
+      const raw = getPortalSupabaseErrorText(error).toLowerCase();
+      return raw.includes("attachment_")
+        || raw.includes("schema cache")
+        || raw.includes("could not find")
+        || raw.includes("column");
+    }
+
+    function getPortalMessagePayloadWithoutAttachment(payload) {
+      const fallbackPayload = { ...(payload || {}) };
+      delete fallbackPayload.attachment_url;
+      delete fallbackPayload.attachment_name;
+      delete fallbackPayload.attachment_type;
+      delete fallbackPayload.attachment_size;
+      delete fallbackPayload.attachment_bucket;
+      delete fallbackPayload.attachment_path;
+      if (payload && payload.attachment_url) {
+        const label = payload.attachment_name ? `Attached file: ${payload.attachment_name}` : "Attached file";
+        const isInlineData = String(payload.attachment_url || "").startsWith("data:");
+        const attachmentNote = isInlineData
+          ? "The attachment could not be saved because Supabase Storage rejected the upload."
+          : `Attachment link: ${payload.attachment_url}`;
+        fallbackPayload.message_text = [fallbackPayload.message_text || label, attachmentNote].filter(Boolean).join("\n\n");
+      }
+      return fallbackPayload;
+    }
+
+    function getPortalMessagePayloadWithoutJobLink(payload) {
+      const fallbackPayload = { ...(payload || {}) };
+      delete fallbackPayload.related_job_id;
+      delete fallbackPayload.fts_invoice_number;
+      return fallbackPayload;
+    }
+
+    function getPortalMinimalMessagePayload(payload) {
+      return {
+        customer_email: payload.customer_email,
+        customer_name: payload.customer_name,
+        sender_type: payload.sender_type,
+        sender_name: payload.sender_name,
+        message_text: payload.message_text,
+        read_by_planner: payload.read_by_planner,
+        read_by_customer: payload.read_by_customer
+      };
+    }
+
+    function getPortalMessagePayloadKey(payload) {
+      try {
+        return JSON.stringify(payload || {});
+      } catch (e) {
+        return String(Math.random());
+      }
+    }
+
+    async function insertPortalMessage(payload) {
+      const attempts = [{ payload, fallback: false }];
+      if (payload && payload.attachment_url) {
+        attempts.push({ payload: getPortalMessagePayloadWithoutAttachment(payload), fallback: true });
+      }
+      if (payload && (payload.related_job_id || payload.fts_invoice_number)) {
+        attempts.push({ payload: getPortalMessagePayloadWithoutJobLink(payload), fallback: true });
+      }
+      if (payload && payload.attachment_url && (payload.related_job_id || payload.fts_invoice_number)) {
+        attempts.push({ payload: getPortalMessagePayloadWithoutJobLink(getPortalMessagePayloadWithoutAttachment(payload)), fallback: true });
+      }
+      attempts.push({ payload: getPortalMinimalMessagePayload(payload), fallback: true });
+
+      let firstError = null;
+      const seen = new Set();
+      for (const attempt of attempts) {
+        const key = getPortalMessagePayloadKey(attempt.payload);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const { error } = await sb.from(PORTAL_MESSAGES_TABLE).insert([attempt.payload]);
+        if (!error) return { fallback: attempt.fallback };
+        if (!firstError) firstError = error;
+        console.warn("Portal message insert attempt failed:", error);
+      }
+      throw firstError || new Error("Supabase rejected the message insert.");
+    }
+
+    function handlePortalMessageInputKeydown(event) {
+      if (!event || event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+      event.preventDefault();
+      sendPortalMessage();
     }
 
     async function sendPortalMessage() {
@@ -3449,7 +3629,10 @@
       }
 
       try {
-        const attachmentPayload = file ? await uploadMessageAttachmentToStorage(file, currentUserEmail) : null;
+        const rawAttachmentPayload = file ? await getPortalMessageAttachmentPayload(file, currentUserEmail) : null;
+        const attachmentWasInline = !!(rawAttachmentPayload && rawAttachmentPayload.__inlineFallback);
+        const attachmentPayload = rawAttachmentPayload ? { ...rawAttachmentPayload } : null;
+        if (attachmentPayload) delete attachmentPayload.__inlineFallback;
         const payload = {
           customer_email: currentUserEmail,
           customer_name: getPortalCustomerName(),
@@ -3461,12 +3644,13 @@
           ...getPortalMessageLinkedJobPayload(),
           ...(attachmentPayload || {})
         };
-        const { error } = await sb.from(PORTAL_MESSAGES_TABLE).insert([payload]);
-        if (error) throw error;
+        const result = await insertPortalMessage(payload);
         if (portalMessageInput) portalMessageInput.value = "";
         clearPortalMessageFile();
         clearPortalMessageJobLink();
-        setMessagesStatus("Message sent.", "ok");
+        setMessagesStatus(result && result.fallback
+          ? "Message sent with the file as a link."
+          : (attachmentWasInline ? "Message sent. Storage rejected the upload, so the small file was sent inside the message." : "Message sent."), "ok");
         await loadPortalMessages(true);
       } catch (error) {
         console.error("Could not send message:", error);
@@ -3475,6 +3659,9 @@
         if (portalMessageSendButton) {
           portalMessageSendButton.disabled = false;
           portalMessageSendButton.textContent = "Send";
+        }
+        if (portalMessageInput && currentUserEmail) {
+          setTimeout(() => portalMessageInput.focus(), 0);
         }
       }
     }
