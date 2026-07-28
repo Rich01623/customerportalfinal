@@ -2545,6 +2545,13 @@
       }
     };
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, customerPortalAuthOptions);
+    const portalLookupSb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false
+      }
+    });
 
     function savePortalSessionBackup(session) {
       if (!session || !session.access_token || !session.refresh_token) return;
@@ -3102,8 +3109,8 @@
       try {
         const weekWindow = getCurrentWeekWindow();
         const [requestsResult, previousResult] = await Promise.all([
-          sb.rpc("lookup_booking_requests", { request_email: currentUserEmail }),
-          sb.rpc("lookup_previous_bookings", { request_email: currentUserEmail })
+          portalLookupSb.rpc("lookup_booking_requests", { request_email: currentUserEmail }),
+          portalLookupSb.rpc("lookup_previous_bookings", { request_email: currentUserEmail })
         ]);
 
         if (requestId !== homeSnapshotRequestId) return;
@@ -3454,7 +3461,7 @@
         return;
       }
       try {
-        const { data, error } = await sb.rpc("lookup_previous_bookings", { request_email: currentUserEmail });
+        const { data, error } = await portalLookupSb.rpc("lookup_previous_bookings", { request_email: currentUserEmail });
         if (error) throw error;
         previousBookingRows = await addPodUrlsToPreviousRows(data || []);
       } catch (error) {
@@ -4365,7 +4372,7 @@
 
       setPreviousStatus("Loading booking details...", "warn");
       try {
-        const { data: fullDetails, error } = await sb.rpc("lookup_booking_template_source", {
+        const { data: fullDetails, error } = await portalLookupSb.rpc("lookup_booking_template_source", {
           request_email: currentUserEmail,
           booking_id: String(row.id)
         });
@@ -5491,7 +5498,7 @@
       creatingHistoryTemplateIds.add(cleanId);
       setPreviousStatus("Loading full job details...", "warn");
       try {
-        const { data: sourceData, error: sourceError } = await sb.rpc("lookup_booking_template_source", {
+        const { data: sourceData, error: sourceError } = await portalLookupSb.rpc("lookup_booking_template_source", {
           request_email: currentUserEmail,
           booking_id: cleanId
         });
@@ -6241,7 +6248,7 @@
       setLookupStatus("Checking bookings awaiting approval...", "warn");
 
       try {
-        const { data, error } = await sb.rpc("lookup_booking_requests", { request_email: email });
+        const { data, error } = await portalLookupSb.rpc("lookup_booking_requests", { request_email: email });
         if (error) throw error;
         const rows = filterPendingBookingRequests(data || []);
         window.currentLookupRows = rows;
@@ -6485,7 +6492,7 @@
       setPreviousStatus(`Checking ${sectionName}...`, "warn");
 
       try {
-        const { data, error } = await sb.rpc("lookup_previous_bookings", { request_email: email });
+        const { data, error } = await portalLookupSb.rpc("lookup_previous_bookings", { request_email: email });
         if (error) throw error;
         previousBookingRows = await addPodUrlsToPreviousRows(data || []);
         refreshPreviousBookingDisplay();
@@ -6551,14 +6558,14 @@
         if (currentPreviousBookingEdit) {
           await saveActiveBookingChanges();
         } else if (currentEditRequest) {
-          const { error } = await sb.rpc("update_booking_request_from_client", {
+          const { error } = await portalLookupSb.rpc("update_booking_request_from_client", {
             request_id: currentEditRequest.id,
             request_email: lastLookupEmail || currentEditRequest.customer_email || payload.customer_email,
             request_payload: buildEditablePayload()
           });
           if (error) throw error;
         } else {
-          const { error } = await sb.from(BOOKING_REQUESTS_TABLE).insert([payload]);
+          const { error } = await portalLookupSb.from(BOOKING_REQUESTS_TABLE).insert([payload]);
           if (error) throw error;
         }
 
