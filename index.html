@@ -4849,7 +4849,7 @@
 
         customer_name: valueOf("n_cust_name"),
         customer_phone: valueOf("n_cust_phone"),
-        customer_email: valueOf("n_cust_email"),
+        customer_email: currentUserEmail || valueOf("n_cust_email").toLowerCase(),
         job_notes: valueOf("n_job_notes"),
 
         coll_cust_name: valueOf("n_coll_name"),
@@ -5426,6 +5426,7 @@
       if (template && template.isFullJobTemplate) {
         const payload = {
           ...template.bookingPayload,
+          customer_email: currentUserEmail,
           coll_datetime: "",
           del_datetime: "",
           customers_own_invoice_number: "",
@@ -5433,6 +5434,7 @@
           request_status: "new"
         };
         populateBookingFormFromRequest(payload);
+        setFieldValue("n_cust_email", currentUserEmail);
         setFieldValue("n_coll_address_search", payload.coll_address_search || formatTemplateAddress(collection));
         setFieldValue("n_del_address_search", payload.del_address_search || formatTemplateAddress(delivery));
         setFieldValue("n_coll_dt", "");
