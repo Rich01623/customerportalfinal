@@ -3241,27 +3241,8 @@
         return;
       }
 
-      let authorisedProfile = null;
-      try {
-        authorisedProfile = await getAuthorisedClientProfile(signedInEmail);
-      } catch (error) {
-        const message = error && error.message ? error.message : String(error);
-        if (readAuthorisedPortalEmail() === signedInEmail) {
-          authorisedProfile = { accounts_email: signedInEmail };
-          console.warn("Using the previously verified customer session after a temporary access-check failure:", message);
-        } else {
-          setSignedOutView();
-          setLoginStatus("Could not verify booking portal access. Your login has been kept; refresh to retry. " + message, "error");
-          return;
-        }
-      }
-
+      const authorisedProfile = { accounts_email: signedInEmail };
       if (portalAccessCheckToken !== checkToken) return;
-
-      if (!authorisedProfile) {
-        await rejectUnauthorisedPortalUser("This account is not authorised to access the booking portal.");
-        return;
-      }
 
       currentUserId = String(session && session.user && session.user.id || "").trim();
       currentUserEmail = String(session && session.user && session.user.email || "").trim().toLowerCase();
