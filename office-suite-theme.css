@@ -1,0 +1,890 @@
+:root {
+  color-scheme: light;
+}
+
+body[data-office-app] {
+  --office-bg: #f4f7fb;
+  --office-panel: #ffffff;
+  --office-panel-soft: #f8fafc;
+  --office-text: #000000;
+  --office-muted: #000000;
+  --office-line: #dbe3ef;
+  --office-red: #dc2626;
+  --office-red-dark: #b91c1c;
+  --office-red-soft: #fef2f2;
+  --office-blue: #2563eb;
+  --office-green: #16a34a;
+  --office-amber: #d97706;
+  --office-radius: 18px;
+  --office-control-radius: 12px;
+  --office-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+  --office-modal-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+body[data-office-app] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+body[data-office-app] ::-webkit-scrollbar-track {
+  background: #eef2f7;
+}
+
+body[data-office-app] ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+body[data-office-app] input:focus,
+body[data-office-app] select:focus,
+body[data-office-app] textarea:focus {
+  border-color: var(--office-red) !important;
+  box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.12) !important;
+  outline: none !important;
+}
+
+body[data-office-app] input::placeholder,
+body[data-office-app] textarea::placeholder {
+  color: #000000 !important;
+  opacity: 1;
+}
+
+/* Planner */
+body[data-office-app="planner"] {
+  --frost-red: var(--office-red);
+  --header-red: #ffffff;
+  --header-red-dark: var(--office-red-soft);
+  --light-grey: var(--office-bg);
+  --border-color: var(--office-line);
+  background: var(--office-bg);
+  color: var(--office-text);
+}
+
+body[data-office-app="planner"] header {
+  background: var(--office-panel) !important;
+  border-bottom: 1px solid var(--office-line) !important;
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06) !important;
+}
+
+body[data-office-app="planner"] .logo-container,
+body[data-office-app="planner"] .header-actions-wrapper,
+body[data-office-app="planner"] .header-menu-stack,
+body[data-office-app="planner"] .header-menu-bar,
+body[data-office-app="planner"] .header-planner-search {
+  background: var(--office-panel) !important;
+}
+
+body[data-office-app="planner"] .logo-container img {
+  display: none !important;
+}
+
+body[data-office-app="planner"] .logo-container::before {
+  content: "FROST";
+  color: var(--office-red);
+  font-size: 20px;
+  font-style: italic;
+  font-weight: 900;
+  line-height: 1;
+}
+
+body[data-office-app="planner"] .toolbar-menu {
+  border-left-color: #edf1f6 !important;
+}
+
+body[data-office-app="planner"] .header-menu-stack .toolbar-direct-btn,
+body[data-office-app="planner"] .header-menu-stack .toolbar-menu-trigger {
+  background: var(--office-panel) !important;
+  color: var(--office-text) !important;
+}
+
+body[data-office-app="planner"] .header-menu-stack .toolbar-direct-btn:hover,
+body[data-office-app="planner"] .header-menu-stack .toolbar-menu:hover .toolbar-menu-trigger,
+body[data-office-app="planner"] .header-menu-stack .toolbar-menu:focus-within .toolbar-menu-trigger {
+  background: var(--office-red-soft) !important;
+  color: var(--office-red) !important;
+}
+
+body[data-office-app="planner"] .toolbar-menu-trigger::after {
+  border-top-color: #94a3b8 !important;
+}
+
+body[data-office-app="planner"] .toolbar-menu-dropdown {
+  border: 1px solid var(--office-line) !important;
+  border-top: 3px solid var(--office-red) !important;
+  border-radius: 0 0 12px 12px !important;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16) !important;
+  padding: 6px !important;
+}
+
+body[data-office-app="planner"] .menu-dropdown-item,
+body[data-office-app="planner"] .toolbar-menu .menu-dropdown-item.week-btn {
+  border-radius: 8px !important;
+  color: var(--office-text) !important;
+}
+
+body[data-office-app="planner"] .menu-dropdown-item:hover,
+body[data-office-app="planner"] .menu-dropdown-item:focus {
+  background: var(--office-red-soft) !important;
+  color: var(--office-red) !important;
+}
+
+body[data-office-app="planner"] .menu-dropdown-item.active,
+body[data-office-app="planner"] .toolbar-menu .menu-dropdown-item.week-btn.active {
+  background: var(--office-red) !important;
+  color: #ffffff !important;
+}
+
+body[data-office-app="planner"] .header-planner-search input {
+  border: 1px solid var(--office-line) !important;
+  border-radius: 10px !important;
+  background: var(--office-panel-soft) !important;
+  color: var(--office-text) !important;
+}
+
+body[data-office-app="planner"] .week-info-box,
+body[data-office-app="planner"] .grand-total-box {
+  background: var(--office-panel) !important;
+  color: var(--office-text) !important;
+  border-left: 1px solid var(--office-line) !important;
+}
+
+body[data-office-app="planner"] .grand-total-value {
+  color: var(--office-green) !important;
+}
+
+body[data-office-app="planner"] .driver-notification-ticker {
+  background: var(--office-panel) !important;
+  color: var(--office-text) !important;
+  border-bottom: 1px solid var(--office-line) !important;
+  box-shadow: none !important;
+}
+
+body[data-office-app="planner"] .driver-ticker-label {
+  background: var(--office-red) !important;
+  color: #ffffff !important;
+}
+
+body[data-office-app="planner"] #content-area {
+  padding: 14px;
+}
+
+body[data-office-app="planner"] #planner-board {
+  border: 1px solid var(--office-line);
+  border-radius: 8px;
+  box-shadow: var(--office-shadow);
+}
+
+body[data-office-app="planner"] table.planner-table {
+  background: var(--office-line);
+  border-spacing: 1px;
+}
+
+body[data-office-app="planner"] .corner-header,
+body[data-office-app="planner"] .vehicle-col-header,
+body[data-office-app="planner"] .status-col-header {
+  background: var(--office-panel-soft);
+  color: var(--office-text);
+  border-bottom: 2px solid var(--office-line);
+}
+
+body[data-office-app="planner"] .corner-header {
+  border-right: 3px solid var(--office-red);
+}
+
+body[data-office-app="planner"] .vehicle-col-header .reg-title {
+  color: var(--office-red);
+}
+
+body[data-office-app="planner"] .vehicle-col-header .driver-weekly-total,
+body[data-office-app="planner"] .vehicle-col-header .driver-contact-btn {
+  color: var(--office-muted);
+}
+
+body[data-office-app="planner"] .vehicle-col-header.palletforce-header,
+body[data-office-app="planner"] .vehicle-col-header.rental-header,
+body[data-office-app="planner"] th.vor-header,
+body[data-office-app="planner"] .status-col-header.booking_requests-header,
+body[data-office-app="planner"] .status-col-header.cancelled-header {
+  color: #ffffff;
+}
+
+body[data-office-app="planner"] .date-cell {
+  background: var(--office-panel-soft);
+  color: var(--office-text) !important;
+  border-color: var(--office-line);
+  border-right-color: var(--office-red);
+}
+
+body[data-office-app="planner"] table.planner-table td {
+  border-bottom: 1px solid var(--office-line);
+}
+
+body[data-office-app="planner"] .job-card,
+body[data-office-app="planner"] .pool-day,
+body[data-office-app="planner"] .invoice-number-pill {
+  border-color: var(--office-line);
+  border-radius: 8px;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.08);
+}
+
+body[data-office-app="planner"] .modal-overlay {
+  background: rgba(15, 23, 42, 0.55);
+}
+
+body[data-office-app="planner"] .modal-content {
+  border: 1px solid var(--office-line);
+  border-radius: 18px;
+  box-shadow: var(--office-modal-shadow);
+}
+
+body[data-office-app="planner"] .modal-content input,
+body[data-office-app="planner"] .modal-content select,
+body[data-office-app="planner"] .modal-content textarea {
+  border: 1px solid var(--office-line);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--office-text);
+}
+
+body[data-office-app="planner"] .week-btn,
+body[data-office-app="planner"] #add-job-btn,
+body[data-office-app="planner"] .message-compose button,
+body[data-office-app="planner"] .message-clear-chat-btn {
+  border-radius: var(--office-control-radius);
+}
+
+/* Maintenance */
+body[data-office-app="maintenance"] {
+  --fleet-red: var(--office-red);
+  --bg-main: var(--office-bg);
+  --sidebar-bg: var(--office-panel);
+  --card-bg: var(--office-panel);
+  --text-main: var(--office-text);
+  --border-color: var(--office-line);
+  background: var(--office-bg) !important;
+  color: var(--office-text) !important;
+}
+
+body[data-office-app="maintenance"] #login-overlay {
+  background: var(--office-bg) !important;
+}
+
+body[data-office-app="maintenance"] .login-box {
+  max-width: 460px;
+  background: var(--office-panel) !important;
+  border: 1px solid var(--office-line) !important;
+  border-radius: var(--office-radius) !important;
+  box-shadow: var(--office-shadow) !important;
+}
+
+body[data-office-app="maintenance"] #login-overlay h1,
+body[data-office-app="maintenance"] #login-overlay h2,
+body[data-office-app="maintenance"] #login-overlay p {
+  color: var(--office-text) !important;
+}
+
+body[data-office-app="maintenance"] #login-overlay [class~="text-rose-500"],
+body[data-office-app="maintenance"] #login-overlay [class~="text-rose-600"],
+body[data-office-app="maintenance"] [class~="text-rose-500"],
+body[data-office-app="maintenance"] [class~="text-rose-600"] {
+  color: var(--office-red) !important;
+}
+
+body[data-office-app="maintenance"] [class~="bg-rose-600"],
+body[data-office-app="maintenance"] [class~="bg-rose-500"] {
+  background-color: var(--office-red) !important;
+}
+
+body[data-office-app="maintenance"] [class~="border-rose-600"],
+body[data-office-app="maintenance"] [class~="border-rose-500"] {
+  border-color: var(--office-red) !important;
+}
+
+body[data-office-app="maintenance"] .login-input,
+body[data-office-app="maintenance"] input[type="date"],
+body[data-office-app="maintenance"] .input-text,
+body[data-office-app="maintenance"] select,
+body[data-office-app="maintenance"] textarea {
+  background: #ffffff !important;
+  color: var(--office-text) !important;
+  border: 1px solid var(--office-line) !important;
+  border-radius: var(--office-control-radius) !important;
+}
+
+body[data-office-app="maintenance"] #login-btn {
+  background: var(--office-red) !important;
+  color: #ffffff !important;
+  border-radius: var(--office-control-radius) !important;
+  box-shadow: none !important;
+}
+
+body[data-office-app="maintenance"] #login-btn:hover {
+  background: var(--office-red-dark) !important;
+}
+
+body[data-office-app="maintenance"] aside {
+  background: var(--office-panel) !important;
+  border-right: 1px solid var(--office-line) !important;
+}
+
+body[data-office-app="maintenance"] main {
+  background: var(--office-bg) !important;
+}
+
+body[data-office-app="maintenance"] .nav-link {
+  color: var(--office-muted) !important;
+  border-radius: var(--office-control-radius) !important;
+}
+
+body[data-office-app="maintenance"] .nav-link:hover:not(.active) {
+  background: var(--office-red-soft) !important;
+  color: var(--office-red) !important;
+}
+
+body[data-office-app="maintenance"] .nav-link.active {
+  background: var(--office-red) !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+body[data-office-app="maintenance"] .nav-link.active * {
+  color: #ffffff !important;
+}
+
+body[data-office-app="maintenance"] .glass-card {
+  background: var(--office-panel) !important;
+  color: var(--office-text) !important;
+  border: 1px solid var(--office-line) !important;
+  border-radius: var(--office-radius) !important;
+  box-shadow: var(--office-shadow) !important;
+}
+
+body[data-office-app="maintenance"] .glass-card [class~="text-white"],
+body[data-office-app="maintenance"] #main-sidebar [class~="text-white"] {
+  color: var(--office-text) !important;
+}
+
+body[data-office-app="maintenance"] button[class~="text-white"],
+body[data-office-app="maintenance"] .plate-badge,
+body[data-office-app="maintenance"] .plate-badge * {
+  color: #ffffff !important;
+}
+
+body[data-office-app="maintenance"] [class~="bg-slate-900"],
+body[data-office-app="maintenance"] [class~="bg-slate-800"],
+body[data-office-app="maintenance"] [class~="bg-slate-700"] {
+  background-color: var(--office-panel-soft) !important;
+}
+
+body[data-office-app="maintenance"] .btn-action,
+body[data-office-app="maintenance"] .btn-compliance,
+body[data-office-app="maintenance"] .sub-nav-btn {
+  border-radius: 10px !important;
+}
+
+body[data-office-app="maintenance"] .sub-nav-btn.active {
+  background: var(--office-red) !important;
+  border-color: var(--office-red) !important;
+  color: #ffffff !important;
+}
+
+body[data-office-app="maintenance"] .defect-table th {
+  background: var(--office-panel-soft) !important;
+  color: var(--office-muted) !important;
+  border-bottom-color: var(--office-line) !important;
+}
+
+body[data-office-app="maintenance"] .readonly-input {
+  background: #eef2f7 !important;
+  color: var(--office-muted) !important;
+}
+
+body[data-office-app="maintenance"] .week-display {
+  background: var(--office-panel-soft) !important;
+  color: var(--office-text) !important;
+  border-color: var(--office-line) !important;
+  border-radius: 10px !important;
+}
+
+/* Personnel */
+body[data-office-app="personnel"] {
+  --bg-main: var(--office-bg);
+  --bg-sidebar: var(--office-panel);
+  --panel-slate: var(--office-panel);
+  --text-main: var(--office-text);
+  --text-muted: var(--office-muted);
+  --frost-blue: var(--office-red);
+  --frost-blue-hover: var(--office-red-dark);
+  --rs-orange: var(--office-red);
+  --reject-red: var(--office-red);
+  --border-color: var(--office-line);
+  background: var(--office-bg);
+  color: var(--office-text);
+}
+
+body[data-office-app="personnel"] #loginWrapper {
+  background: var(--office-bg);
+}
+
+body[data-office-app="personnel"] #loginWrapper .panel {
+  max-width: 460px !important;
+  text-align: left !important;
+  border: 1px solid var(--office-line);
+  border-radius: var(--office-radius);
+  box-shadow: var(--office-shadow);
+}
+
+body[data-office-app="personnel"] #loginWrapper .panel::before {
+  content: "FROST";
+  display: block;
+  margin-bottom: 10px;
+  color: var(--office-red);
+  font-size: 28px;
+  font-style: italic;
+  font-weight: 900;
+  line-height: 1;
+}
+
+body[data-office-app="personnel"] #loginWrapper h2 {
+  color: var(--office-text) !important;
+  font-size: 24px;
+}
+
+body[data-office-app="personnel"] .sidebar {
+  background: var(--office-panel);
+  border-right: 1px solid var(--office-line);
+}
+
+body[data-office-app="personnel"] .sidebar-header h2 {
+  color: var(--office-red);
+  letter-spacing: 0;
+}
+
+body[data-office-app="personnel"] .nav-links a {
+  border-radius: var(--office-control-radius);
+  color: var(--office-muted);
+}
+
+body[data-office-app="personnel"] .nav-links a:hover,
+body[data-office-app="personnel"] .nav-links a.active {
+  background: var(--office-red-soft) !important;
+  color: var(--office-red) !important;
+  border-left-color: var(--office-red) !important;
+}
+
+body[data-office-app="personnel"] .main-content {
+  background: var(--office-bg);
+}
+
+body[data-office-app="personnel"] .panel,
+body[data-office-app="personnel"] .card,
+body[data-office-app="personnel"] .planner-controls,
+body[data-office-app="personnel"] .month-card,
+body[data-office-app="personnel"] .profile-card,
+body[data-office-app="personnel"] .data-group {
+  background: var(--office-panel);
+  border: 1px solid var(--office-line);
+  border-radius: var(--office-radius);
+  box-shadow: var(--office-shadow);
+}
+
+body[data-office-app="personnel"] button {
+  border-radius: var(--office-control-radius);
+  padding: 11px 14px;
+  font-weight: 800;
+}
+
+body[data-office-app="personnel"] .btn-action {
+  background: var(--office-red);
+}
+
+body[data-office-app="personnel"] .btn-action:hover {
+  background: var(--office-red-dark);
+  opacity: 1;
+}
+
+body[data-office-app="personnel"] .btn-logout,
+body[data-office-app="personnel"] .holiday-detail-close {
+  background: #eef2f7;
+  color: var(--office-text);
+  border: 1px solid #eef2f7;
+}
+
+body[data-office-app="personnel"] input,
+body[data-office-app="personnel"] select,
+body[data-office-app="personnel"] textarea {
+  background: #ffffff;
+  color: var(--office-text);
+  border: 1px solid var(--office-line);
+  border-radius: var(--office-control-radius);
+}
+
+body[data-office-app="personnel"] th {
+  background: var(--office-panel-soft);
+  color: var(--office-muted);
+}
+
+body[data-office-app="personnel"] tr:hover {
+  background: var(--office-panel-soft);
+}
+
+body[data-office-app="personnel"] .day-cell,
+body[data-office-app="personnel"] .photo-preview-wrap,
+body[data-office-app="personnel"] .document-preview-wrap {
+  background: var(--office-panel-soft);
+}
+
+/* Drivers */
+body[data-office-app="drivers"] {
+  --red: var(--office-red);
+  --bg: var(--office-bg);
+  --sidebar: var(--office-panel);
+  --card: var(--office-panel);
+  --text: var(--office-text);
+  --border: var(--office-line);
+  --blue: var(--office-blue);
+  background: var(--office-bg);
+  color: var(--office-text);
+}
+
+body[data-office-app="drivers"] .sidebar {
+  background: var(--office-panel);
+  border-right: 1px solid var(--office-line);
+}
+
+body[data-office-app="drivers"] .sidebar-header {
+  color: var(--office-red);
+  border-bottom-color: var(--office-line);
+  letter-spacing: 0;
+}
+
+body[data-office-app="drivers"] .sidebar-content {
+  color: var(--office-muted);
+}
+
+body[data-office-app="drivers"] #sidebar-fuel-cards-list > div {
+  background: var(--office-panel) !important;
+  border: 1px solid var(--office-line) !important;
+  border-radius: var(--office-control-radius) !important;
+  box-shadow: 0 5px 16px rgba(15, 23, 42, 0.05);
+}
+
+body[data-office-app="drivers"] .main-wrapper {
+  background: var(--office-bg);
+}
+
+body[data-office-app="drivers"] .header {
+  background: var(--office-panel);
+  border: 1px solid var(--office-line);
+  border-bottom: 4px solid var(--office-red);
+  border-radius: var(--office-radius);
+  box-shadow: var(--office-shadow);
+}
+
+body[data-office-app="drivers"] .btn {
+  background: #eef2f7;
+  color: var(--office-text);
+  border-radius: var(--office-control-radius);
+  padding: 10px 12px;
+}
+
+body[data-office-app="drivers"] .btn:hover {
+  background: var(--office-red-soft);
+  color: var(--office-red);
+}
+
+body[data-office-app="drivers"] .btn-active-week {
+  background: var(--office-red) !important;
+  color: #ffffff !important;
+}
+
+body[data-office-app="drivers"] .iso-week-picker {
+  background: var(--office-panel-soft);
+  border-color: var(--office-line);
+  border-radius: var(--office-control-radius);
+}
+
+body[data-office-app="drivers"] .iso-week-picker select,
+body[data-office-app="drivers"] .form-group input,
+body[data-office-app="drivers"] .form-group select,
+body[data-office-app="drivers"] .form-group textarea {
+  background: #ffffff;
+  color: var(--office-text);
+  border: 1px solid var(--office-line);
+  border-radius: 10px;
+}
+
+body[data-office-app="drivers"] #selected-week-label {
+  color: var(--office-red);
+}
+
+body[data-office-app="drivers"] .stat-card,
+body[data-office-app="drivers"] .table-container,
+body[data-office-app="drivers"] .report-box,
+body[data-office-app="drivers"] .notes-text {
+  background: var(--office-panel);
+  color: var(--office-text);
+  border-color: var(--office-line);
+  border-radius: var(--office-radius);
+}
+
+body[data-office-app="drivers"] .stat-card {
+  border-top: 1px solid var(--office-line);
+  border-right: 1px solid var(--office-line);
+  border-bottom: 1px solid var(--office-line);
+  border-left-color: #000000 !important;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+body[data-office-app="drivers"] .stats-grid .stat-card,
+body[data-office-app="drivers"] .stats-grid .stat-card h3,
+body[data-office-app="drivers"] .stats-grid .stat-card p,
+body[data-office-app="drivers"] .stats-grid .stat-card div,
+body[data-office-app="drivers"] .stats-grid .stat-card span {
+  color: #000000 !important;
+}
+
+body[data-office-app="drivers"] .stats-grid .stat-card .btn {
+  background: #000000 !important;
+  color: #ffffff !important;
+}
+
+body[data-office-app="drivers"] .table-container {
+  box-shadow: var(--office-shadow);
+}
+
+body[data-office-app="drivers"] th {
+  background: var(--office-panel-soft);
+  color: var(--office-muted);
+}
+
+body[data-office-app="drivers"] td {
+  color: var(--office-text);
+}
+
+body[data-office-app="drivers"] .log-text {
+  background: var(--office-panel-soft);
+  color: var(--office-text);
+  border-color: var(--office-line);
+}
+
+body[data-office-app="drivers"] #manual-modal,
+body[data-office-app="drivers"] #fuel-modal,
+body[data-office-app="drivers"] #fuel-card-modal,
+body[data-office-app="drivers"] #trailer-modal,
+body[data-office-app="drivers"] #driver-modal,
+body[data-office-app="drivers"] #broadcast-modal,
+body[data-office-app="drivers"] #onform-modal,
+body[data-office-app="drivers"] #map-modal,
+body[data-office-app="drivers"] #defect-photo-modal {
+  background: rgba(15, 23, 42, 0.62);
+}
+
+body[data-office-app="drivers"] .modal-content {
+  background: var(--office-panel);
+  color: var(--office-text);
+  border: 1px solid var(--office-line);
+  border-radius: var(--office-radius);
+  box-shadow: var(--office-modal-shadow);
+}
+
+body[data-office-app="drivers"] .iso-week-picker label,
+body[data-office-app="drivers"] .stat-card h3,
+body[data-office-app="drivers"] .defect-photo-title,
+body[data-office-app="drivers"] .form-group label,
+body[data-office-app="drivers"] #stat-hours,
+body[data-office-app="drivers"] #stat-fuel-cost,
+body[data-office-app="drivers"] #stat-on-form span,
+body[data-office-app="drivers"] #sidebar-fuel-cards-list span,
+body[data-office-app="maintenance"] .label-heading,
+body[data-office-app="maintenance"] .breadcrumb-item,
+body[data-office-app="maintenance"] .sub-nav-btn {
+  color: var(--office-text) !important;
+}
+
+body[data-office-app] [class~="text-slate-300"],
+body[data-office-app] [class~="text-slate-400"],
+body[data-office-app] [class~="text-slate-500"],
+body[data-office-app] [class~="text-slate-600"],
+body[data-office-app] [class~="text-gray-300"],
+body[data-office-app] [class~="text-gray-400"],
+body[data-office-app] [class~="text-gray-500"],
+body[data-office-app] [class~="text-gray-600"] {
+  color: var(--office-text) !important;
+}
+
+/* Route planner */
+body[data-office-app="route-planner"] {
+  --frost-red: var(--office-red);
+  --frost-red-dark: var(--office-red-dark);
+  --frost-dark-navy: var(--office-text);
+  --suite-background: var(--office-bg);
+  --suite-line: var(--office-line);
+  --suite-soft: var(--office-panel-soft);
+  background: var(--office-bg);
+  color: var(--office-text);
+}
+
+body[data-office-app="route-planner"] .frost-card,
+body[data-office-app="route-planner"] .map-wrapper {
+  background: var(--office-panel);
+  border-color: var(--office-line);
+  border-radius: 8px;
+  box-shadow: var(--office-shadow);
+}
+
+body[data-office-app="route-planner"] .card-header-bar {
+  background: var(--office-red);
+}
+
+body[data-office-app="route-planner"] .route-add-button,
+body[data-office-app="route-planner"] .btn-primary {
+  background: var(--office-red) !important;
+  color: #ffffff !important;
+  border-radius: 6px !important;
+}
+
+body[data-office-app="route-planner"] .route-add-button:hover,
+body[data-office-app="route-planner"] .btn-primary:hover {
+  background: var(--office-red-dark) !important;
+}
+
+body[data-office-app="route-planner"] .frost-input,
+body[data-office-app="route-planner"] .sortable-item,
+body[data-office-app="route-planner"] .route-stat,
+body[data-office-app="route-planner"] .check-item {
+  border-color: var(--office-line) !important;
+  color: var(--office-text) !important;
+}
+
+body[data-office-app="route-planner"] .route-stat,
+body[data-office-app="route-planner"] .sortable-item {
+  background: var(--office-panel-soft) !important;
+}
+
+body[data-office-app="route-planner"] .label-text,
+body[data-office-app="route-planner"] .btn-clear,
+body[data-office-app="route-planner"] .map-note {
+  color: var(--office-text) !important;
+}
+
+body[data-office-app="route-planner"] input[type="checkbox"] {
+  accent-color: var(--office-red);
+}
+
+/* Customer portal */
+body[data-office-app="customer"] {
+  --frost-red: var(--office-red);
+  --ink: var(--office-text);
+  --muted: var(--office-muted);
+  --line: var(--office-line);
+  --surface: var(--office-panel);
+  --wash: var(--office-bg);
+  --radius: var(--office-radius);
+  background: var(--office-bg);
+  color: var(--office-text);
+}
+
+body[data-office-app="customer"] header {
+  background: var(--office-panel);
+  color: var(--office-text);
+  border-bottom: 1px solid var(--office-line);
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
+}
+
+body[data-office-app="customer"] .panel,
+body[data-office-app="customer"] .home-stat-card {
+  border: 1px solid var(--office-line);
+  border-radius: var(--office-radius);
+  box-shadow: var(--office-shadow);
+}
+
+body[data-office-app="customer"] .form-head {
+  background: var(--office-panel);
+  color: var(--office-text);
+  border-top: 5px solid var(--office-red);
+  border-bottom: 1px solid var(--office-line);
+}
+
+body[data-office-app="customer"] .action-btn,
+body[data-office-app="customer"] .mode-btn,
+body[data-office-app="customer"] .tab-btn {
+  border-radius: var(--office-control-radius);
+  font-weight: 800;
+}
+
+body[data-office-app="customer"] .action-btn.primary,
+body[data-office-app="customer"] .mode-btn.active,
+body[data-office-app="customer"] .tab-btn.active {
+  background: var(--office-red);
+  color: #ffffff;
+  border-color: var(--office-red);
+}
+
+body[data-office-app="customer"] .action-btn.primary:hover,
+body[data-office-app="customer"] .mode-btn.active:hover,
+body[data-office-app="customer"] .tab-btn.active:hover {
+  background: var(--office-red-dark);
+}
+
+body[data-office-app="customer"] .action-btn.secondary {
+  background: #eef2f7;
+  color: var(--office-text);
+  border-color: #eef2f7;
+}
+
+body[data-office-app="customer"] input,
+body[data-office-app="customer"] select,
+body[data-office-app="customer"] textarea {
+  background: #ffffff;
+  color: var(--office-text);
+  border: 1px solid var(--office-line);
+  border-radius: var(--office-control-radius);
+}
+
+body[data-office-app="customer"] .app-nav {
+  background: var(--office-panel);
+  border-right: 1px solid var(--office-line);
+}
+
+body[data-office-app="customer"] .app-nav button {
+  border-radius: var(--office-control-radius);
+  color: var(--office-muted);
+}
+
+body[data-office-app="customer"] .app-nav button:hover,
+body[data-office-app="customer"] .app-nav button.active {
+  background: var(--office-red-soft);
+  color: var(--office-red);
+}
+
+body[data-office-app="customer"] .login-panel {
+  width: min(460px, calc(100vw - 32px));
+  border-radius: var(--office-radius);
+  box-shadow: var(--office-shadow);
+}
+
+body[data-office-app="customer"] .login-panel .form-head {
+  background: #ffffff;
+  border-top: 5px solid var(--office-red);
+}
+
+body[data-office-app="customer"] .login-panel h1,
+body[data-office-app="customer"] .login-panel label {
+  color: var(--office-text) !important;
+}
+
+body[data-office-app="customer"] .warning-modal-backdrop {
+  background: rgba(15, 23, 42, 0.55);
+}
+
+@media (max-width: 900px) {
+  body[data-office-app="drivers"] .sidebar {
+    width: 280px;
+  }
+
+  body[data-office-app="maintenance"] aside {
+    width: 280px;
+  }
+}
