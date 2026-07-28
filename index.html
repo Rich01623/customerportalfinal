@@ -5170,11 +5170,12 @@
     }
 
     async function verifyTemplateOwnerSession() {
-      const { data, error } = await sb.auth.getUser();
-      if (error || !data || !data.user || !data.user.id) {
+      const { data, error } = await sb.auth.getSession();
+      const sessionUser = data && data.session && data.session.user;
+      if (error || !sessionUser || !sessionUser.id) {
         throw new Error("Your customer login has expired. Please sign in again, then retry the template.");
       }
-      currentUserId = String(data.user.id).trim();
+      currentUserId = String(sessionUser.id).trim();
       return currentUserId;
     }
 
