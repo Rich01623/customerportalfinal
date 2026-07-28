@@ -2483,30 +2483,6 @@
     const PORTAL_PRESENCE_INTERVAL_MS = 45000;
     const CUSTOMER_PORTAL_AUTH_STORAGE_KEY = "frost_customer_portal_auth_v1";
     const CUSTOMER_PORTAL_SESSION_BACKUP_KEY = "frost_customer_portal_session_backup_v1";
-    const CUSTOMER_PORTAL_AUTHORISED_EMAIL_KEY = "frost_customer_portal_authorised_email_v1";
-    const CUSTOMER_PORTAL_COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
-
-    function writePortalCookie(key, value, maxAge = CUSTOMER_PORTAL_COOKIE_MAX_AGE) {
-      try {
-        const secure = window.location.protocol === "https:" ? "; Secure" : "";
-        document.cookie = `${encodeURIComponent(key)}=${encodeURIComponent(value)}; Max-Age=${maxAge}; Path=/; SameSite=Lax${secure}`;
-      } catch (_) {}
-    }
-
-    function readPortalCookie(key) {
-      try {
-        const prefix = encodeURIComponent(key) + "=";
-        const item = String(document.cookie || "").split("; ").find((entry) => entry.startsWith(prefix));
-        return item ? decodeURIComponent(item.slice(prefix.length)) : null;
-      } catch (_) {
-        return null;
-      }
-    }
-
-    function clearPortalCookie(key) {
-      writePortalCookie(key, "", 0);
-    }
-
     const customerPortalStorageCandidates = [];
     try {
       if (window.localStorage) customerPortalStorageCandidates.push(window.localStorage);
@@ -2545,29 +2521,19 @@
       }
     };
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, customerPortalAuthOptions);
-    const portalLookupSb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false
-      }
-    });
 
     function savePortalSessionBackup(session) {
       if (!session || !session.access_token || !session.refresh_token) return;
-      const value = JSON.stringify({
+      customerPortalAuthStorage.setItem(CUSTOMER_PORTAL_SESSION_BACKUP_KEY, JSON.stringify({
         access_token: session.access_token,
         refresh_token: session.refresh_token,
         expires_at: session.expires_at || null
-      });
-      customerPortalAuthStorage.setItem(CUSTOMER_PORTAL_SESSION_BACKUP_KEY, value);
-      writePortalCookie(CUSTOMER_PORTAL_SESSION_BACKUP_KEY, value);
+      }));
     }
 
     function readPortalSessionBackup() {
       try {
-        const value = customerPortalAuthStorage.getItem(CUSTOMER_PORTAL_SESSION_BACKUP_KEY)
-          || readPortalCookie(CUSTOMER_PORTAL_SESSION_BACKUP_KEY);
+        const value = customerPortalAuthStorage.getItem(CUSTOMER_PORTAL_SESSION_BACKUP_KEY);
         const session = value ? JSON.parse(value) : null;
         return session && session.access_token && session.refresh_token ? session : null;
       } catch (_) {
@@ -2577,27 +2543,6 @@
 
     function clearPortalSessionBackup() {
       customerPortalAuthStorage.removeItem(CUSTOMER_PORTAL_SESSION_BACKUP_KEY);
-      clearPortalCookie(CUSTOMER_PORTAL_SESSION_BACKUP_KEY);
-    }
-
-    function saveAuthorisedPortalEmail(email) {
-      const cleanEmail = String(email || "").trim().toLowerCase();
-      if (!cleanEmail) return;
-      customerPortalAuthStorage.setItem(CUSTOMER_PORTAL_AUTHORISED_EMAIL_KEY, cleanEmail);
-      writePortalCookie(CUSTOMER_PORTAL_AUTHORISED_EMAIL_KEY, cleanEmail);
-    }
-
-    function readAuthorisedPortalEmail() {
-      return String(
-        customerPortalAuthStorage.getItem(CUSTOMER_PORTAL_AUTHORISED_EMAIL_KEY)
-        || readPortalCookie(CUSTOMER_PORTAL_AUTHORISED_EMAIL_KEY)
-        || ""
-      ).trim().toLowerCase();
-    }
-
-    function clearAuthorisedPortalEmail() {
-      customerPortalAuthStorage.removeItem(CUSTOMER_PORTAL_AUTHORISED_EMAIL_KEY);
-      clearPortalCookie(CUSTOMER_PORTAL_AUTHORISED_EMAIL_KEY);
     }
 
     const loginView = document.getElementById("login-view");
@@ -3109,8 +3054,8 @@
       try {
         const weekWindow = getCurrentWeekWindow();
         const [requestsResult, previousResult] = await Promise.all([
-          portalLookupSb.rpc("lookup_booking_requests", { request_email: currentUserEmail }),
-          portalLookupSb.rpc("lookup_previous_bookings", { request_email: currentUserEmail })
+          sb.rpc("lookup_booking_requests", { request_email: currentUserEmail }),
+          sb.rpc("lookup_previous_bookings", { request_email: currentUserEmail })
         ]);
 
         if (requestId !== homeSnapshotRequestId) return;
@@ -3201,24 +3146,14 @@
       const cleanEmail = String(email || "").trim().toLowerCase();
       if (!cleanEmail) return null;
 
-      let lastError = null;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-          const profiles = await fetchClientAccountProfilesByEmail(escapeSupabaseLikeValue(cleanEmail), 10);
-          return (profiles || []).find((profile) =>
-            String(profile.accounts_email || "").trim().toLowerCase() === cleanEmail
-          ) || null;
-        } catch (error) {
-          lastError = error;
-          if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 300));
-        }
-      }
-      throw lastError || new Error("Customer access could not be checked.");
+      const profiles = await fetchClientAccountProfilesByEmail(escapeSupabaseLikeValue(cleanEmail), 10);
+      return (profiles || []).find((profile) =>
+        String(profile.accounts_email || "").trim().toLowerCase() === cleanEmail
+      ) || null;
     }
 
     async function rejectUnauthorisedPortalUser(message) {
       clearPortalSessionBackup();
-      clearAuthorisedPortalEmail();
       try {
         await sb.auth.signOut();
       } catch (error) {
@@ -3248,8 +3183,21 @@
         return;
       }
 
-      const authorisedProfile = { accounts_email: signedInEmail };
+      let authorisedProfile = null;
+      try {
+        authorisedProfile = await getAuthorisedClientProfile(signedInEmail);
+      } catch (error) {
+        const message = error && error.message ? error.message : String(error);
+        await rejectUnauthorisedPortalUser("Could not verify booking portal access: " + message);
+        return;
+      }
+
       if (portalAccessCheckToken !== checkToken) return;
+
+      if (!authorisedProfile) {
+        await rejectUnauthorisedPortalUser("This account is not authorised to access the booking portal.");
+        return;
+      }
 
       currentUserId = String(session && session.user && session.user.id || "").trim();
       currentUserEmail = String(session && session.user && session.user.email || "").trim().toLowerCase();
@@ -3270,7 +3218,6 @@
       startHomeClock();
       clientAccountProfileEmail = currentUserEmail;
       clientAccountProfile = authorisedProfile;
-      saveAuthorisedPortalEmail(currentUserEmail);
       loadCurrentClientAccountProfileForQuote();
       startPortalMessagePolling();
       startPortalPresenceHeartbeat();
@@ -3278,54 +3225,35 @@
     }
 
     async function initialiseAuth() {
-      let session = null;
-      try {
-        const { data, error } = await sb.auth.getSession();
-        if (error) throw error;
-        session = data && data.session;
-      } catch (error) {
-        console.warn("Could not read the primary customer session; trying the persistent backup:", error);
-      }
-
+      const { data } = await sb.auth.getSession();
+      let session = data && data.session;
       if (!session) {
         const backup = readPortalSessionBackup();
         if (backup) {
-          try {
-            const restored = await sb.auth.setSession({
-              access_token: backup.access_token,
-              refresh_token: backup.refresh_token
-            });
-            if (restored.error) throw restored.error;
-            session = restored.data && restored.data.session;
-            if (session) savePortalSessionBackup(session);
-          } catch (error) {
-            console.warn("Could not restore the customer session backup:", error);
-          }
+          const restored = await sb.auth.setSession({
+            access_token: backup.access_token,
+            refresh_token: backup.refresh_token
+          });
+          session = restored.data && restored.data.session;
+          if (restored.error || !session) clearPortalSessionBackup();
         }
       }
       if (session) await setSignedInView(session);
       else setSignedOutView();
 
-      sb.auth.onAuthStateChange((event, nextSession) => {
-        if (nextSession) savePortalSessionBackup(nextSession);
-        if (event !== "SIGNED_OUT") return;
-        setTimeout(async () => {
-          try {
-            const { data } = await sb.auth.getSession();
-            if (!data || !data.session) setSignedOutView();
-          } catch (_) {
-            setSignedOutView();
-          }
-        }, 0);
+      sb.auth.onAuthStateChange(async (_event, session) => {
+        if (session) {
+          savePortalSessionBackup(session);
+          await setSignedInView(session);
+        }
+        else setSignedOutView();
       });
     }
 
     async function signOutClient() {
       await updatePortalPresence(false);
       clearPortalSessionBackup();
-      clearAuthorisedPortalEmail();
       await sb.auth.signOut();
-      setSignedOutView();
     }
 
     async function openBookingForm(showAdvanceWarning = false) {
@@ -3461,7 +3389,7 @@
         return;
       }
       try {
-        const { data, error } = await portalLookupSb.rpc("lookup_previous_bookings", { request_email: currentUserEmail });
+        const { data, error } = await sb.rpc("lookup_previous_bookings", { request_email: currentUserEmail });
         if (error) throw error;
         previousBookingRows = await addPodUrlsToPreviousRows(data || []);
       } catch (error) {
@@ -4372,7 +4300,7 @@
 
       setPreviousStatus("Loading booking details...", "warn");
       try {
-        const { data: fullDetails, error } = await portalLookupSb.rpc("lookup_booking_template_source", {
+        const { data: fullDetails, error } = await sb.rpc("lookup_booking_template_source", {
           request_email: currentUserEmail,
           booking_id: String(row.id)
         });
@@ -5498,7 +5426,7 @@
       creatingHistoryTemplateIds.add(cleanId);
       setPreviousStatus("Loading full job details...", "warn");
       try {
-        const { data: sourceData, error: sourceError } = await portalLookupSb.rpc("lookup_booking_template_source", {
+        const { data: sourceData, error: sourceError } = await sb.rpc("lookup_booking_template_source", {
           request_email: currentUserEmail,
           booking_id: cleanId
         });
@@ -6248,7 +6176,7 @@
       setLookupStatus("Checking bookings awaiting approval...", "warn");
 
       try {
-        const { data, error } = await portalLookupSb.rpc("lookup_booking_requests", { request_email: email });
+        const { data, error } = await sb.rpc("lookup_booking_requests", { request_email: email });
         if (error) throw error;
         const rows = filterPendingBookingRequests(data || []);
         window.currentLookupRows = rows;
@@ -6492,7 +6420,7 @@
       setPreviousStatus(`Checking ${sectionName}...`, "warn");
 
       try {
-        const { data, error } = await portalLookupSb.rpc("lookup_previous_bookings", { request_email: email });
+        const { data, error } = await sb.rpc("lookup_previous_bookings", { request_email: email });
         if (error) throw error;
         previousBookingRows = await addPodUrlsToPreviousRows(data || []);
         refreshPreviousBookingDisplay();
@@ -6558,14 +6486,14 @@
         if (currentPreviousBookingEdit) {
           await saveActiveBookingChanges();
         } else if (currentEditRequest) {
-          const { error } = await portalLookupSb.rpc("update_booking_request_from_client", {
+          const { error } = await sb.rpc("update_booking_request_from_client", {
             request_id: currentEditRequest.id,
             request_email: lastLookupEmail || currentEditRequest.customer_email || payload.customer_email,
             request_payload: buildEditablePayload()
           });
           if (error) throw error;
         } else {
-          const { error } = await portalLookupSb.from(BOOKING_REQUESTS_TABLE).insert([payload]);
+          const { error } = await sb.from(BOOKING_REQUESTS_TABLE).insert([payload]);
           if (error) throw error;
         }
 
