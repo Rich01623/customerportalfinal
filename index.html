@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>FROST Transport Booking Requests</title>
+  <script src="office-suite-app.js" data-app="customer"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root {
@@ -542,8 +543,8 @@
 
     .booking-slim-row {
       display: grid;
-      grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) minmax(150px, 1.2fr) minmax(120px, 1fr) minmax(135px, 1fr) minmax(135px, 1fr) 54px;
-      min-width: 910px;
+      grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) minmax(150px, 1.2fr) minmax(120px, 1fr) minmax(135px, 1fr) minmax(135px, 1fr) 170px;
+      min-width: 1026px;
       border-top: 1px solid #e5e7eb;
       color: #334155;
       font-size: 0.78rem;
@@ -579,6 +580,7 @@
 
     .booking-slim-action-cell {
       display: flex;
+      gap: 5px;
       justify-content: center;
       align-items: center;
       padding: 6px 8px;
@@ -604,8 +606,16 @@
       color: #fff;
     }
 
+    .booking-slim-template-btn {
+      width: auto;
+      min-width: 72px;
+      padding: 0 10px;
+      font-size: 0.7rem;
+      font-weight: 850;
+    }
+
     .booking-slim-detail {
-      min-width: 910px;
+      min-width: 1026px;
       padding: 12px;
       border-top: 1px solid #fecaca;
       background: #fffafa;
@@ -1740,8 +1750,9 @@
       .form-body { padding: 14px; }
     }
   </style>
+  <link rel="stylesheet" href="office-suite-theme.css">
 </head>
-<body>
+<body data-office-app="customer">
   <header id="app-header">
     <div class="topbar">
       <div class="brand-wrap">
@@ -2032,7 +2043,7 @@
           </div>
 
           <div class="form-actions">
-            <button type="button" class="action-btn secondary" onclick="saveCurrentBookingAsTemplate()">Add to templates</button>
+            <button type="button" class="action-btn secondary" id="save-booking-template-btn" onclick="saveCurrentBookingAsTemplate()">Add to templates</button>
             <button type="button" class="action-btn secondary" onclick="cancelBookingForm()">Cancel</button>
             <button type="submit" class="action-btn primary" id="submit-btn">Submit Booking Request</button>
             <span class="status" id="submit-status"></span>
@@ -2453,7 +2464,15 @@
     const MESSAGE_INLINE_ATTACHMENT_MAX_MB = 1.5;
     const MESSAGE_POLL_INTERVAL_MS = 10000;
     const PORTAL_PRESENCE_INTERVAL_MS = 45000;
-    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const customerPortalAuthOptions = {
+      auth: {
+        storageKey: "frost_customer_portal_auth_v1",
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false
+      }
+    };
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, customerPortalAuthOptions);
 
     const loginView = document.getElementById("login-view");
     const loginForm = document.getElementById("login-form");
@@ -2474,6 +2493,7 @@
     const contactStaffList = document.getElementById("contact-staff-list");
     const termsView = document.getElementById("terms-view");
     const bookingForm = document.getElementById("booking-form");
+    const saveBookingTemplateButton = document.getElementById("save-booking-template-btn");
     const submitButton = document.getElementById("submit-btn");
     const submitStatus = document.getElementById("submit-status");
     const lookupStatus = document.getElementById("lookup-status");
@@ -2538,8 +2558,10 @@
     let customerSuggestionRequestId = 0;
     let currentEditRequest = null;
     let currentPreviousBookingEdit = null;
+    let currentLoadedBookingTemplate = null;
     let bookingWarningResolve = null;
     let lastLookupEmail = "";
+    let currentUserId = "";
     let currentUserEmail = "";
     let currentUserName = "";
     let currentCompanyLogoDataUrl = "";
@@ -2554,6 +2576,7 @@
     let previousSearchTerm = "";
     let homeSnapshotRequestId = 0;
     let currentTemplates = [];
+    const creatingHistoryTemplateIds = new Set();
     let portalMessagesRaw = [];
     let selectedPortalMessageJobId = "";
     let portalMessagePollTimer = null;
@@ -2588,6 +2611,44 @@
       "n_coll_ref",
       "n_10",
       "n_customers_own_invoice_number"
+    ]);
+    const fullTemplateEditableFieldIds = new Set([
+      "n_coll_dt",
+      "n_del_dt",
+      "n_customers_own_invoice_number"
+    ]);
+    const fullTemplatePayloadFields = Object.freeze([
+      "job_contract_type",
+      "customer_name",
+      "customer_phone",
+      "customer_email",
+      "job_notes",
+      "coll_address_search",
+      "coll_cust_name",
+      "coll_phone",
+      "coll_email",
+      "coll_postcode",
+      "coll_street",
+      "coll_town",
+      "coll_county",
+      "coll_ref",
+      "del_address_search",
+      "del_cust_name",
+      "del_phone",
+      "del_email",
+      "del_postcode",
+      "del_street",
+      "del_town",
+      "del_county",
+      "del_ref",
+      "coll_postcode_2",
+      "coll_town_2",
+      "del_postcode_2",
+      "del_town_2",
+      "total_price",
+      "total_pallets",
+      "total_weight",
+      "vehicle_type"
     ]);
     const DRIVER_PROGRESS_STEPS = [
       { label: "Acknowledged", timestampField: "ack_timestamp", gpsField: "ack_gps" },
@@ -2968,6 +3029,7 @@
 
     function setSignedOutView() {
       portalAccessCheckToken += 1;
+      currentUserId = "";
       currentUserEmail = "";
       currentUserName = "";
       currentCompanyLogoDataUrl = "";
@@ -2977,6 +3039,7 @@
       clientAccountProfile = null;
       currentEditRequest = null;
       currentPreviousBookingEdit = null;
+      currentLoadedBookingTemplate = null;
       portalMessagesRaw = [];
       stopPortalMessagePolling();
       stopPortalPresenceHeartbeat();
@@ -3052,6 +3115,7 @@
         return;
       }
 
+      currentUserId = String(session && session.user && session.user.id || "").trim();
       currentUserEmail = String(session && session.user && session.user.email || "").trim().toLowerCase();
       currentUserName = getClientDisplayName(session && session.user);
       currentCompanyLogoDataUrl = getClientCompanyLogo(session && session.user);
@@ -3099,6 +3163,7 @@
       rememberView("form");
       currentEditRequest = null;
       currentPreviousBookingEdit = null;
+      currentLoadedBookingTemplate = null;
       bookingForm.reset();
       clearBookingFormLocks();
       submitButton.textContent = "Submit Booking Request";
@@ -3704,6 +3769,15 @@
     }
 
     function cancelBookingForm() {
+      if (currentLoadedBookingTemplate) {
+        currentLoadedBookingTemplate = null;
+        currentEditRequest = null;
+        currentPreviousBookingEdit = null;
+        clearBookingFormLocks();
+        openTemplatesView("view");
+        return;
+      }
+
       if (currentPreviousBookingEdit) {
         currentPreviousBookingEdit = null;
         currentEditRequest = null;
@@ -3735,6 +3809,7 @@
       setSettingsStatus("", "");
       currentEditRequest = null;
       currentPreviousBookingEdit = null;
+      currentLoadedBookingTemplate = null;
       clearBookingFormLocks();
       submitButton.textContent = "Submit Booking Request";
       applyHomeStatsVisibility();
@@ -3982,6 +4057,7 @@
       document.querySelectorAll(".mode-btn").forEach((button) => {
         button.disabled = false;
       });
+      if (saveBookingTemplateButton) saveBookingTemplateButton.disabled = false;
     }
 
     function applyBookingFormLocksForRequest(request) {
@@ -4009,6 +4085,24 @@
       document.querySelectorAll(".mode-btn").forEach((button) => {
         button.disabled = true;
       });
+    }
+
+    function applyFullTemplateFormLocks() {
+      clearBookingFormLocks();
+      bookingForm.querySelectorAll("input, select, textarea").forEach((field) => {
+        if (fullTemplateEditableFieldIds.has(field.id)) {
+          field.disabled = false;
+          field.readOnly = false;
+          field.title = "";
+          return;
+        }
+        field.disabled = true;
+        field.title = "This value comes from the selected template and cannot be changed.";
+      });
+      document.querySelectorAll(".mode-btn").forEach((button) => {
+        button.disabled = true;
+      });
+      if (saveBookingTemplateButton) saveBookingTemplateButton.disabled = true;
     }
 
     function populateBookingFormFromRequest(request) {
@@ -4066,6 +4160,7 @@
 
       currentEditRequest = request;
       currentPreviousBookingEdit = null;
+      currentLoadedBookingTemplate = null;
       rememberView("form");
       populateBookingFormFromRequest(request);
       hideAppViews();
@@ -4090,6 +4185,7 @@
 
       currentEditRequest = null;
       currentPreviousBookingEdit = row;
+      currentLoadedBookingTemplate = null;
       rememberView("form");
       populateBookingFormFromRequest(row);
       applyReferenceOnlyFormLocks();
@@ -4869,7 +4965,28 @@
       return Object.values(address || {}).some((value) => String(value || "").trim());
     }
 
+    function normaliseFullTemplatePayload(value) {
+      let source = value;
+      if (typeof source === "string") {
+        try {
+          source = JSON.parse(source);
+        } catch (error) {
+          source = {};
+        }
+      }
+      if (!source || typeof source !== "object" || Array.isArray(source)) return {};
+      return fullTemplatePayloadFields.reduce((payload, field) => {
+        payload[field] = source[field] == null ? "" : String(source[field]);
+        return payload;
+      }, {});
+    }
+
+    function hasFullTemplatePayload(payload) {
+      return fullTemplatePayloadFields.some((field) => String(payload && payload[field] || "").trim());
+    }
+
     function templateRowToViewModel(row) {
+      const bookingPayload = normaliseFullTemplatePayload(row.booking_payload);
       return {
         id: row.id,
         name: row.template_name || "Untitled template",
@@ -4895,12 +5012,18 @@
           phone: row.del_phone || "",
           email: row.del_email || ""
         },
-        totalPrice: row.total_price || ""
+        totalPrice: row.total_price || bookingPayload.total_price || "",
+        bookingPayload,
+        isFullJobTemplate: hasFullTemplatePayload(bookingPayload)
       };
     }
 
-    function buildTemplateInsertPayload(name, collection, delivery, totalPrice = "") {
-      return {
+    function buildTemplateInsertPayload(name, collection, delivery, totalPrice = "", bookingPayload = null) {
+      if (!currentUserId) {
+        throw new Error("Your customer login session could not be identified. Please sign in again.");
+      }
+      const payload = {
+        user_id: currentUserId,
         account_email: currentUserEmail,
         template_name: name,
         coll_address_search: collection.search,
@@ -4921,6 +5044,10 @@
         del_county: delivery.county,
         total_price: totalPrice
       };
+      if (bookingPayload && hasFullTemplatePayload(bookingPayload)) {
+        payload.booking_payload = normaliseFullTemplatePayload(bookingPayload);
+      }
+      return payload;
     }
 
     async function fetchTemplates() {
@@ -4953,6 +5080,7 @@
       setTemplateStatus("Saving template...", "warn");
 
       try {
+        await verifyTemplateOwnerSession();
         const { error } = await sb
           .from(CLIENT_BOOKING_TEMPLATES_TABLE)
           .insert([buildTemplateInsertPayload(name, collection, delivery)]);
@@ -4973,10 +5101,88 @@
       return `${from} to ${to}`;
     }
 
+    function buildFullTemplatePayloadFromSource(source = {}) {
+      const collection = {
+        search: source.coll_address_search || "",
+        name: source.coll_cust_name || "",
+        postcode: source.coll_postcode || "",
+        street: source.coll_street || "",
+        town: source.coll_town || "",
+        county: source.coll_county || "",
+        phone: source.coll_phone || "",
+        email: source.coll_email || ""
+      };
+      const delivery = {
+        search: source.del_address_search || "",
+        name: source.del_cust_name || "",
+        postcode: source.del_postcode || "",
+        street: source.del_street || "",
+        town: source.del_town || "",
+        county: source.del_county || "",
+        phone: source.del_phone || "",
+        email: source.del_email || ""
+      };
+      return normaliseFullTemplatePayload({
+        ...source,
+        coll_address_search: collection.search || formatTemplateAddress(collection),
+        del_address_search: delivery.search || formatTemplateAddress(delivery)
+      });
+    }
+
+    function buildFullTemplatePayloadFromCurrentForm() {
+      return buildFullTemplatePayloadFromSource({
+        ...buildPayload(),
+        coll_address_search: valueOf("n_coll_address_search"),
+        del_address_search: valueOf("n_del_address_search")
+      });
+    }
+
+    function getTemplateAddressesFromPayload(payload) {
+      return {
+        collection: {
+          search: payload.coll_address_search || "",
+          name: payload.coll_cust_name || "",
+          postcode: payload.coll_postcode || "",
+          street: payload.coll_street || "",
+          town: payload.coll_town || "",
+          county: payload.coll_county || "",
+          phone: payload.coll_phone || "",
+          email: payload.coll_email || ""
+        },
+        delivery: {
+          search: payload.del_address_search || "",
+          name: payload.del_cust_name || "",
+          postcode: payload.del_postcode || "",
+          street: payload.del_street || "",
+          town: payload.del_town || "",
+          county: payload.del_county || "",
+          phone: payload.del_phone || "",
+          email: payload.del_email || ""
+        }
+      };
+    }
+
+    function getTemplateSaveError(error) {
+      const message = error && error.message ? error.message : String(error || "Unknown error");
+      return message.toLowerCase().includes("booking_payload")
+        ? "The full-job template database update has not been installed yet."
+        : message;
+    }
+
+    async function verifyTemplateOwnerSession() {
+      const { data, error } = await sb.auth.getUser();
+      if (error || !data || !data.user || !data.user.id) {
+        throw new Error("Your customer login has expired. Please sign in again, then retry the template.");
+      }
+      currentUserId = String(data.user.id).trim();
+      return currentUserId;
+    }
+
     async function saveCurrentBookingAsTemplate() {
       const collection = readBookingTemplateAddress("n_coll");
       const delivery = readBookingTemplateAddress("n_del");
       const totalPrice = valueOf("n_price");
+      const bookingPayload = buildFullTemplatePayloadFromCurrentForm();
 
       if (!templateAddressHasData(collection) || !templateAddressHasData(delivery)) {
         setStatus("Add collection and delivery address details before saving a template.", "error");
@@ -4998,15 +5204,58 @@
       setStatus("Saving template...", "warn");
 
       try {
+        await verifyTemplateOwnerSession();
         const { error } = await sb
           .from(CLIENT_BOOKING_TEMPLATES_TABLE)
-          .insert([buildTemplateInsertPayload(cleanName, collection, delivery, totalPrice)]);
+          .insert([buildTemplateInsertPayload(cleanName, collection, delivery, totalPrice, bookingPayload)]);
         if (error) throw error;
 
         setStatus("Template saved.", "ok");
       } catch (error) {
-        const message = error && error.message ? error.message : String(error);
-        setStatus("Could not save template: " + message, "error");
+        setStatus("Could not save template: " + getTemplateSaveError(error), "error");
+      }
+    }
+
+    async function createTemplateFromHistoryJob(id) {
+      const cleanId = String(id || "");
+      const row = (previousBookingRows || []).find((item) => String(item.id) === cleanId);
+      if (!row || previousBookingMode !== "history") {
+        setPreviousStatus("Could not find that history job. Refresh and try once more.", "error");
+        return;
+      }
+      if (creatingHistoryTemplateIds.has(cleanId)) return;
+
+      const bookingPayload = buildFullTemplatePayloadFromSource(row);
+      const addresses = getTemplateAddressesFromPayload(bookingPayload);
+      if (!templateAddressHasData(addresses.collection) || !templateAddressHasData(addresses.delivery)) {
+        setPreviousStatus("This job does not contain enough collection and delivery information to make a template.", "error");
+        return;
+      }
+
+      const suggestedName = buildTemplateNameFromBooking(addresses.collection, addresses.delivery);
+      const templateName = prompt("Template name", suggestedName);
+      if (templateName === null) return;
+      const cleanName = String(templateName || "").trim() || suggestedName;
+
+      creatingHistoryTemplateIds.add(cleanId);
+      setPreviousStatus("Creating template...", "warn");
+      try {
+        await verifyTemplateOwnerSession();
+        const { error } = await sb
+          .from(CLIENT_BOOKING_TEMPLATES_TABLE)
+          .insert([buildTemplateInsertPayload(
+            cleanName,
+            addresses.collection,
+            addresses.delivery,
+            bookingPayload.total_price,
+            bookingPayload
+          )]);
+        if (error) throw error;
+        setPreviousStatus(`Template "${cleanName}" created. It is ready in Templates.`, "ok");
+      } catch (error) {
+        setPreviousStatus("Could not create template: " + getTemplateSaveError(error), "error");
+      } finally {
+        creatingHistoryTemplateIds.delete(cleanId);
       }
     }
 
@@ -5157,6 +5406,28 @@
       const collection = template && template.collection ? template.collection : {};
       const delivery = template && template.delivery ? template.delivery : {};
 
+      if (template && template.isFullJobTemplate) {
+        const payload = {
+          ...template.bookingPayload,
+          coll_datetime: "",
+          del_datetime: "",
+          customers_own_invoice_number: "",
+          fts_invoice_number: "",
+          request_status: "new"
+        };
+        populateBookingFormFromRequest(payload);
+        setFieldValue("n_coll_address_search", payload.coll_address_search || formatTemplateAddress(collection));
+        setFieldValue("n_del_address_search", payload.del_address_search || formatTemplateAddress(delivery));
+        setFieldValue("n_coll_dt", "");
+        setFieldValue("n_del_dt", "");
+        setFieldValue("n_customers_own_invoice_number", "");
+        setFieldValue("n_fts_invoice_number", "");
+        currentLoadedBookingTemplate = template;
+        applyFullTemplateFormLocks();
+        switchFormTab("leg1");
+        return true;
+      }
+
       setFieldValue("n_coll_address_search", templateAddressHasData(collection) ? (collection.search || formatTemplateAddress(collection)) : "");
       setFieldValue("n_coll_name", collection.name);
       setFieldValue("n_coll_pc", collection.postcode);
@@ -5182,7 +5453,9 @@
       setFieldValue("n_coll_dt", "");
       setFieldValue("n_del_dt", "");
 
+      currentLoadedBookingTemplate = null;
       switchFormTab("leg1");
+      return false;
     }
 
     async function loadTemplateIntoBooking(id) {
@@ -5211,8 +5484,13 @@
       }
 
       await openBookingForm(true);
-      applyTemplateToBookingForm(template);
-      setStatus("Template loaded. Add dates, times and reference numbers before submitting.", "ok");
+      const isFullJobTemplate = applyTemplateToBookingForm(template);
+      setStatus(
+        isFullJobTemplate
+          ? "Template loaded. Only collection and delivery dates/times and the customer reference can be changed."
+          : "Legacy template loaded. Complete the remaining job details before submitting.",
+        isFullJobTemplate ? "ok" : "warn"
+      );
     }
 
     function escapeHtml(value) {
@@ -5669,6 +5947,9 @@
         const podButton = podUrl ? `<button type="button" class="status-pill accepted previous-pill" data-pod-url="${escapeHtml(podUrl)}" onclick="openPreviousPod(this.dataset.podUrl)">View POD</button>` : "";
         const podThumbnail = renderPreviousPodThumbnail(podUrl);
         const editButton = canEditPreviousBooking(row) ? `<button type="button" class="edit-result-btn previous-pill" onclick="editPreviousBooking('${escapeHtml(row.id)}')">Edit</button>` : "";
+        const templateButton = previousBookingMode === "history"
+          ? `<button type="button" class="edit-result-btn previous-pill" onclick="createTemplateFromHistoryJob('${escapeHtml(row.id)}')">Template</button>`
+          : "";
         const progressButton = `<button type="button" class="edit-result-btn previous-pill" onclick="openProgressModal('${escapeHtml(row.id)}')">View Progress</button>`;
         const messageButton = `<button type="button" class="edit-result-btn previous-pill" onclick="openMessagesForJob('${escapeHtml(row.id)}')">Message</button>`;
         const price = String(row.total_price || "").toUpperCase() === "PFJ" ? "PFJ" : (row.total_price ? "&pound;" + escapeHtml(row.total_price) : "-");
@@ -5681,6 +5962,7 @@
                 <span class="status-pill ${statusClass} previous-pill">${escapeHtml(statusText)}</span>
                 ${podButton}
                 ${editButton}
+                ${templateButton}
                 ${progressButton}
                 ${messageButton}
               </span>
@@ -5716,7 +5998,7 @@
             <div class="booking-slim-cell">FTS number</div>
             <div class="booking-slim-cell">Col date</div>
             <div class="booking-slim-cell">Del Date</div>
-            <div class="booking-slim-cell" aria-label="Progress"></div>
+            <div class="booking-slim-cell" aria-label="Actions"></div>
           </div>
           ${rows.map((row) => {
             const rowId = String(row.id || "");
@@ -5728,6 +6010,9 @@
             const podThumbnail = renderPreviousPodThumbnail(podUrl);
             const price = String(row.total_price || "").toUpperCase() === "PFJ" ? "PFJ" : (row.total_price ? "&pound;" + escapeHtml(row.total_price) : "-");
             const ftsNumber = getPreviousFtsNumber(row) || "FTS pending";
+            const templateButton = previousBookingMode === "history"
+              ? `<button type="button" class="booking-slim-eye-btn booking-slim-template-btn" aria-label="Create template from job" title="Create template from this job" onclick="event.stopPropagation(); createTemplateFromHistoryJob('${escapeHtml(rowId)}')">Template</button>`
+              : "";
             const detail = isExpanded ? `
               <div class="booking-slim-detail">
                 <div class="booking-slim-detail-head">
@@ -5757,6 +6042,7 @@
               <div class="booking-slim-cell" title="${formatDisplayDate(row.coll_datetime || row.collection_datetime)}">${formatDisplayDate(row.coll_datetime || row.collection_datetime)}</div>
               <div class="booking-slim-cell" title="${formatDisplayDate(row.del_datetime || row.delivery_datetime)}">${formatDisplayDate(row.del_datetime || row.delivery_datetime)}</div>
               <div class="booking-slim-action-cell">
+                ${templateButton}
                 <button type="button" class="booking-slim-eye-btn" aria-label="View progress" title="View progress" onclick="event.stopPropagation(); openProgressModal('${escapeHtml(rowId)}')">&#128065;</button>
                 <button type="button" class="booking-slim-eye-btn" aria-label="Message about job" title="Message about job" onclick="event.stopPropagation(); openMessagesForJob('${escapeHtml(rowId)}')">Msg</button>
               </div>
@@ -5947,6 +6233,7 @@
         setJobBookingMode("");
         if (!currentEditRequest) await prefillBookingCustomerFromAccount();
         switchFormTab("leg1");
+        currentLoadedBookingTemplate = null;
         clearBookingFormLocks();
         setStatus(currentPreviousBookingEdit ? "Booking updated." : currentEditRequest ? "Booking request updated." : "Booking request sent.", "ok");
         if (currentPreviousBookingEdit) {
