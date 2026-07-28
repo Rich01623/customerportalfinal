@@ -601,9 +601,26 @@
       justify-content: center;
     }
 
-    .booking-slim-eye-btn:hover {
+    .booking-slim-eye-btn:hover:not(:disabled) {
       background: var(--frost-red);
       color: #fff;
+    }
+
+    .booking-slim-eye-btn:disabled,
+    .edit-result-btn:disabled {
+      border-color: #c7cbd1;
+      background: #e5e7eb;
+      color: #7a8089;
+      cursor: not-allowed;
+      opacity: 0.8;
+    }
+
+    .booking-slim-edit-btn {
+      width: auto;
+      min-width: 44px;
+      padding: 0 8px;
+      font-size: 0.72rem;
+      font-weight: 700;
     }
 
     .booking-slim-template-btn {
@@ -2106,7 +2123,7 @@
           <button type="button" class="template-tab-btn active" data-template-tab="view" onclick="switchTemplateTab('view')">View templates</button>
         </div>
 
-        <section id="template-create-panel" class="template-tab-panel hidden">
+        <section id="template-create-panel" class="template-tab-panel">
           <form id="template-form" onsubmit="saveTemplate(event)">
             <div class="form-group">
               <label for="template_name">Template Name *</label>
@@ -2192,8 +2209,8 @@
             </div>
 
             <div class="form-actions" style="margin-top:18px;">
-              <button type="button" class="action-btn secondary" onclick="clearTemplateForm()">Clear</button>
-              <button type="submit" class="action-btn primary">Save template</button>
+              <button type="button" class="action-btn secondary" onclick="cancelTemplateEdit()">Cancel</button>
+              <button type="submit" class="action-btn primary" id="template-save-btn">Save changes</button>
             </div>
           </form>
         </section>
@@ -2464,6 +2481,8 @@
     const MESSAGE_INLINE_ATTACHMENT_MAX_MB = 1.5;
     const MESSAGE_POLL_INTERVAL_MS = 10000;
     const PORTAL_PRESENCE_INTERVAL_MS = 45000;
+    const CUSTOMER_PORTAL_AUTH_STORAGE_KEY = "frost_customer_portal_auth_v1";
+    const CUSTOMER_PORTAL_SESSION_BACKUP_KEY = "frost_customer_portal_session_backup_v1";
     const customerPortalStorageCandidates = [];
     try {
       if (window.localStorage) customerPortalStorageCandidates.push(window.localStorage);
@@ -2494,7 +2513,7 @@
     };
     const customerPortalAuthOptions = {
       auth: {
-        storageKey: "frost_customer_portal_auth_v1",
+        storageKey: CUSTOMER_PORTAL_AUTH_STORAGE_KEY,
         storage: customerPortalAuthStorage,
         persistSession: true,
         autoRefreshToken: true,
@@ -2502,6 +2521,29 @@
       }
     };
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, customerPortalAuthOptions);
+
+    function savePortalSessionBackup(session) {
+      if (!session || !session.access_token || !session.refresh_token) return;
+      customerPortalAuthStorage.setItem(CUSTOMER_PORTAL_SESSION_BACKUP_KEY, JSON.stringify({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        expires_at: session.expires_at || null
+      }));
+    }
+
+    function readPortalSessionBackup() {
+      try {
+        const value = customerPortalAuthStorage.getItem(CUSTOMER_PORTAL_SESSION_BACKUP_KEY);
+        const session = value ? JSON.parse(value) : null;
+        return session && session.access_token && session.refresh_token ? session : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function clearPortalSessionBackup() {
+      customerPortalAuthStorage.removeItem(CUSTOMER_PORTAL_SESSION_BACKUP_KEY);
+    }
 
     const loginView = document.getElementById("login-view");
     const loginForm = document.getElementById("login-form");
@@ -2564,6 +2606,7 @@
     const templateForm = document.getElementById("template-form");
     const templateStatus = document.getElementById("template-status");
     const templateList = document.getElementById("template-list");
+    const templateSaveButton = document.getElementById("template-save-btn");
     const messagesStatus = document.getElementById("messages-status");
     const portalMessageFeed = document.getElementById("portal-message-feed");
     const portalMessageInput = document.getElementById("portal-message-input");
@@ -2605,6 +2648,7 @@
     let previousSearchTerm = "";
     let homeSnapshotRequestId = 0;
     let currentTemplates = [];
+    let editingTemplateId = "";
     const creatingHistoryTemplateIds = new Set();
     let portalMessagesRaw = [];
     let selectedPortalMessageJobId = "";
@@ -2636,6 +2680,7 @@
     };
     const ACTIVE_VIEW_STORAGE_KEY = "frost-client-portal-active-view";
     const REJECTED_PENDING_SEEN_STORAGE_KEY = "frost-client-portal-rejected-pending-seen";
+    const CUSTOMER_BOOKING_EDIT_CUTOFF_MS = 48 * 60 * 60 * 1000;
     const acceptedEditableFieldIds = new Set([
       "n_coll_ref",
       "n_10",
@@ -2645,6 +2690,14 @@
       "n_coll_dt",
       "n_del_dt",
       "n_customers_own_invoice_number"
+    ]);
+    const activeBookingLockedFieldIds = new Set([
+      "n_job_contract_type",
+      "n_cust_name",
+      "n_cust_email",
+      "n_fts_invoice_number",
+      "n_veh_type",
+      "n_price"
     ]);
     const fullTemplatePayloadFields = Object.freeze([
       "job_contract_type",
@@ -3100,6 +3153,7 @@
     }
 
     async function rejectUnauthorisedPortalUser(message) {
+      clearPortalSessionBackup();
       try {
         await sb.auth.signOut();
       } catch (error) {
@@ -3113,6 +3167,7 @@
       const checkToken = portalAccessCheckToken + 1;
       portalAccessCheckToken = checkToken;
       const signedInEmail = String(session && session.user && session.user.email || "").trim().toLowerCase();
+      savePortalSessionBackup(session);
 
       loginView.classList.remove("hidden");
       document.body.classList.add("login-screen");
@@ -3171,17 +3226,33 @@
 
     async function initialiseAuth() {
       const { data } = await sb.auth.getSession();
-      if (data && data.session) await setSignedInView(data.session);
+      let session = data && data.session;
+      if (!session) {
+        const backup = readPortalSessionBackup();
+        if (backup) {
+          const restored = await sb.auth.setSession({
+            access_token: backup.access_token,
+            refresh_token: backup.refresh_token
+          });
+          session = restored.data && restored.data.session;
+          if (restored.error || !session) clearPortalSessionBackup();
+        }
+      }
+      if (session) await setSignedInView(session);
       else setSignedOutView();
 
       sb.auth.onAuthStateChange(async (_event, session) => {
-        if (session) await setSignedInView(session);
+        if (session) {
+          savePortalSessionBackup(session);
+          await setSignedInView(session);
+        }
         else setSignedOutView();
       });
     }
 
     async function signOutClient() {
       await updatePortalPresence(false);
+      clearPortalSessionBackup();
       await sb.auth.signOut();
     }
 
@@ -4116,6 +4187,19 @@
       });
     }
 
+    function applyActiveBookingEditLocks() {
+      clearBookingFormLocks();
+      bookingForm.querySelectorAll("input, select, textarea").forEach((field) => {
+        if (!activeBookingLockedFieldIds.has(field.id)) return;
+        field.disabled = true;
+        field.title = "This agreed booking value cannot be changed online.";
+      });
+      document.querySelectorAll(".mode-btn").forEach((button) => {
+        button.disabled = true;
+      });
+      if (saveBookingTemplateButton) saveBookingTemplateButton.disabled = true;
+    }
+
     function applyFullTemplateFormLocks() {
       clearBookingFormLocks();
       bookingForm.querySelectorAll("input, select, textarea").forEach((field) => {
@@ -4147,6 +4231,7 @@
       setFieldValue("n_coll_name", request.coll_cust_name);
       setFieldValue("n_coll_phone", request.coll_phone);
       setFieldValue("n_coll_email", request.coll_email);
+      setFieldValue("n_coll_address_search", request.coll_address_search || request.coll_street || request.coll_postcode);
       setFieldValue("n_coll_pc", request.coll_postcode);
       setFieldValue("n_coll_street", request.coll_street);
       setFieldValue("n_coll_town", request.coll_town);
@@ -4158,6 +4243,7 @@
       setFieldValue("n_del_name", request.del_cust_name);
       setFieldValue("n_del_phone", request.del_phone);
       setFieldValue("n_del_email", request.del_email);
+      setFieldValue("n_del_address_search", request.del_address_search || request.del_street || request.del_postcode);
       setFieldValue("n_del_street", request.del_street);
       setFieldValue("n_8", request.del_town);
       setFieldValue("n_9", request.del_county);
@@ -4200,7 +4286,7 @@
         : "Booking request can still be edited before it is accepted.", "warn");
     }
 
-    function editPreviousBooking(id) {
+    async function editPreviousBooking(id) {
       const row = (previousBookingRows || []).find((item) => String(item.id) === String(id));
       if (!row) {
         setPreviousStatus("Could not find that booking. Refresh and try once more.", "error");
@@ -4208,20 +4294,45 @@
       }
 
       if (!canEditPreviousBooking(row)) {
-        setPreviousStatus("This booking can no longer be edited online.", "error");
+        setPreviousStatus("Online editing closes 48 hours before the collection time.", "error");
         return;
       }
 
-      currentEditRequest = null;
-      currentPreviousBookingEdit = row;
-      currentLoadedBookingTemplate = null;
-      rememberView("form");
-      populateBookingFormFromRequest(row);
-      applyReferenceOnlyFormLocks();
-      hideAppViews();
-      formView.classList.remove("hidden");
-      submitButton.textContent = "Save Changes";
-      setStatus("Pending booking: only reference fields and customer invoice details can be changed.", "warn");
+      setPreviousStatus("Loading booking details...", "warn");
+      try {
+        const { data: fullDetails, error } = await sb.rpc("lookup_booking_template_source", {
+          request_email: currentUserEmail,
+          booking_id: String(row.id)
+        });
+        if (error) throw error;
+        if (!canEditPreviousBooking(row)) {
+          throw new Error("Online editing closes 48 hours before the collection time.");
+        }
+
+        const editableRow = {
+          ...row,
+          ...(fullDetails && typeof fullDetails === "object" ? fullDetails : {}),
+          id: row.id,
+          customer_email: currentUserEmail,
+          coll_datetime: row.coll_datetime || row.collection_datetime || "",
+          del_datetime: row.del_datetime || row.delivery_datetime || "",
+          fts_invoice_number: getPreviousFtsNumber(row),
+          customers_own_invoice_number: getPreviousCustomerReference(row)
+        };
+        currentEditRequest = null;
+        currentPreviousBookingEdit = editableRow;
+        currentLoadedBookingTemplate = null;
+        rememberView("form");
+        populateBookingFormFromRequest(editableRow);
+        applyActiveBookingEditLocks();
+        hideAppViews();
+        formView.classList.remove("hidden");
+        submitButton.textContent = "Save Changes";
+        setStatus("This booking can be updated until 48 hours before collection. Agreed price, vehicle and FTS details are locked.", "warn");
+      } catch (error) {
+        const message = error && error.message ? error.message : String(error);
+        setPreviousStatus("Could not open this booking for editing: " + message, "error");
+      }
     }
 
     function escapeSupabaseLikeValue(value) {
@@ -4840,6 +4951,8 @@
     function buildPayload() {
       const bookingMode = valueOf("n_job_contract_type");
       const isPalletforceType = bookingMode === "PalletForce Assist" || bookingMode === "NPC";
+      const collectionAddressSearch = valueOf("n_coll_address_search");
+      const deliveryAddressSearch = valueOf("n_del_address_search");
 
       return {
         request_status: "new",
@@ -4855,8 +4968,9 @@
         coll_cust_name: valueOf("n_coll_name"),
         coll_phone: valueOf("n_coll_phone"),
         coll_email: valueOf("n_coll_email"),
+        coll_address_search: collectionAddressSearch,
         coll_postcode: valueOf("n_coll_pc").toUpperCase(),
-        coll_street: valueOf("n_coll_street"),
+        coll_street: valueOf("n_coll_street") || collectionAddressSearch,
         coll_town: valueOf("n_coll_town"),
         coll_county: valueOf("n_coll_county"),
         coll_ref: valueOf("n_coll_ref"),
@@ -4866,7 +4980,8 @@
         del_cust_name: valueOf("n_del_name"),
         del_phone: valueOf("n_del_phone"),
         del_email: valueOf("n_del_email"),
-        del_street: valueOf("n_del_street"),
+        del_address_search: deliveryAddressSearch,
+        del_street: valueOf("n_del_street") || deliveryAddressSearch,
         del_town: valueOf("n_8"),
         del_county: valueOf("n_9"),
         del_ref: valueOf("n_10"),
@@ -4901,32 +5016,61 @@
       return payload;
     }
 
-    function buildPreviousBookingReferencePayload() {
+    function buildActiveBookingEditPayload() {
+      const payload = buildPayload();
       return {
-        coll_ref: valueOf("n_coll_ref"),
-        del_ref: valueOf("n_10"),
-        customers_own_invoice_number: valueOf("n_customers_own_invoice_number")
+        customer_phone: payload.customer_phone,
+        job_notes: payload.job_notes,
+        coll_address_search: payload.coll_address_search,
+        coll_cust_name: payload.coll_cust_name,
+        coll_phone: payload.coll_phone,
+        coll_email: payload.coll_email,
+        coll_postcode: payload.coll_postcode,
+        coll_street: payload.coll_street,
+        coll_town: payload.coll_town,
+        coll_county: payload.coll_county,
+        coll_ref: payload.coll_ref,
+        coll_datetime: payload.coll_datetime,
+        del_address_search: payload.del_address_search,
+        del_cust_name: payload.del_cust_name,
+        del_phone: payload.del_phone,
+        del_email: payload.del_email,
+        del_postcode: payload.del_postcode,
+        del_street: payload.del_street,
+        del_town: payload.del_town,
+        del_county: payload.del_county,
+        del_ref: payload.del_ref,
+        del_datetime: payload.del_datetime,
+        coll_postcode_2: payload.coll_postcode_2,
+        coll_town_2: payload.coll_town_2,
+        del_postcode_2: payload.del_postcode_2,
+        del_town_2: payload.del_town_2,
+        total_pallets: payload.total_pallets,
+        total_weight: payload.total_weight,
+        customers_own_invoice_number: payload.customers_own_invoice_number
       };
     }
 
-    async function savePreviousBookingReferenceChanges() {
+    async function saveActiveBookingChanges() {
       if (!currentPreviousBookingEdit || !currentPreviousBookingEdit.id) {
         throw new Error("Could not find the booking to update.");
       }
 
       if (!canEditPreviousBooking(currentPreviousBookingEdit)) {
-        throw new Error("This booking can no longer be edited online.");
+        throw new Error("Online editing closes 48 hours before the collection time.");
       }
 
-      const updatePayload = buildPreviousBookingReferencePayload();
-      const { error } = await sb
-        .from("quotes")
-        .update(updatePayload)
-        .eq("id", currentPreviousBookingEdit.id);
+      const updatePayload = buildActiveBookingEditPayload();
+      const { data, error } = await sb.rpc("update_active_booking_from_client", {
+        request_email: currentUserEmail,
+        booking_id: String(currentPreviousBookingEdit.id),
+        booking_payload: updatePayload
+      });
       if (error) throw error;
+      const updatedValues = data && typeof data === "object" ? data : updatePayload;
 
       previousBookingRows = previousBookingRows.map((row) =>
-        String(row.id) === String(currentPreviousBookingEdit.id) ? { ...row, ...updatePayload } : row
+        String(row.id) === String(currentPreviousBookingEdit.id) ? { ...row, ...updatedValues } : row
       );
     }
 
@@ -4952,7 +5096,7 @@
     }
 
     function switchTemplateTab(tabName) {
-      const tab = "view";
+      const tab = tabName === "create" && editingTemplateId ? "create" : "view";
       document.querySelectorAll(".template-tab-panel").forEach((panel) => {
         panel.classList.toggle("active", panel.id === `template-${tab}-panel`);
       });
@@ -4978,11 +5122,12 @@
     }
 
     function readTemplateAddress(prefix) {
+      const search = valueOf(`${prefix}_address_search`);
       return {
-        search: valueOf(`${prefix}_address_search`),
+        search,
         name: valueOf(`${prefix}_name`),
         postcode: valueOf(`${prefix}_pc`).toUpperCase(),
-        street: valueOf(`${prefix}_street`),
+        street: valueOf(`${prefix}_street`) || search,
         town: valueOf(`${prefix}_town`),
         county: valueOf(`${prefix}_county`),
         phone: valueOf(`${prefix}_phone`),
@@ -5094,6 +5239,8 @@
       const name = valueOf("template_name");
       const collection = readTemplateAddress("t_coll");
       const delivery = readTemplateAddress("t_del");
+      const templateId = editingTemplateId;
+      const existingTemplate = currentTemplates.find((item) => String(item.id) === String(templateId));
 
       if (!name) {
         setTemplateStatus("Please enter a template name.", "error");
@@ -5109,17 +5256,50 @@
       setTemplateStatus("Saving template...", "warn");
 
       try {
-        const { error } = await sb
-          .from(CLIENT_BOOKING_TEMPLATES_TABLE)
-          .insert([buildTemplateInsertPayload(name, collection, delivery)]);
+        const existingBookingPayload = existingTemplate && existingTemplate.bookingPayload
+          ? existingTemplate.bookingPayload
+          : {};
+        const bookingPayload = existingTemplate && existingTemplate.isFullJobTemplate
+          ? buildFullTemplatePayloadFromSource({
+              ...existingBookingPayload,
+              coll_address_search: collection.search || formatTemplateAddress(collection),
+              coll_cust_name: collection.name,
+              coll_phone: collection.phone,
+              coll_email: collection.email,
+              coll_postcode: collection.postcode,
+              coll_street: collection.street,
+              coll_town: collection.town,
+              coll_county: collection.county,
+              del_address_search: delivery.search || formatTemplateAddress(delivery),
+              del_cust_name: delivery.name,
+              del_phone: delivery.phone,
+              del_email: delivery.email,
+              del_postcode: delivery.postcode,
+              del_street: delivery.street,
+              del_town: delivery.town,
+              del_county: delivery.county
+            })
+          : null;
+        const savePayload = buildTemplateInsertPayload(
+          name,
+          collection,
+          delivery,
+          existingTemplate ? existingTemplate.totalPrice : "",
+          bookingPayload
+        );
+        const result = templateId
+          ? await sb.from(CLIENT_BOOKING_TEMPLATES_TABLE).update(savePayload).eq("id", templateId).eq("account_email", currentUserEmail)
+          : await sb.from(CLIENT_BOOKING_TEMPLATES_TABLE).insert([savePayload]);
+        const { error } = result;
         if (error) throw error;
 
+        editingTemplateId = "";
+        if (templateSaveButton) templateSaveButton.textContent = "Save changes";
         clearTemplateForm(false);
         switchTemplateTab("view");
-        setTemplateStatus("Template saved.", "ok");
+        setTemplateStatus(templateId ? "Template addresses updated." : "Template saved.", "ok");
       } catch (error) {
-        const message = error && error.message ? error.message : String(error);
-        setTemplateStatus("Could not save template: " + message, "error");
+        setTemplateStatus("Could not save template: " + getTemplateSaveError(error), "error");
       }
     }
 
@@ -5243,21 +5423,34 @@
       }
       if (creatingHistoryTemplateIds.has(cleanId)) return;
 
-      const bookingPayload = buildFullTemplatePayloadFromSource(row);
-      const addresses = getTemplateAddressesFromPayload(bookingPayload);
-      if (!templateAddressHasData(addresses.collection) || !templateAddressHasData(addresses.delivery)) {
-        setPreviousStatus("This job does not contain enough collection and delivery information to make a template.", "error");
-        return;
-      }
-
-      const suggestedName = buildTemplateNameFromBooking(addresses.collection, addresses.delivery);
-      const templateName = prompt("Template name", suggestedName);
-      if (templateName === null) return;
-      const cleanName = String(templateName || "").trim() || suggestedName;
-
       creatingHistoryTemplateIds.add(cleanId);
-      setPreviousStatus("Creating template...", "warn");
+      setPreviousStatus("Loading full job details...", "warn");
       try {
+        const { data: sourceData, error: sourceError } = await sb.rpc("lookup_booking_template_source", {
+          request_email: currentUserEmail,
+          booking_id: cleanId
+        });
+        if (sourceError) throw sourceError;
+        if (!sourceData || typeof sourceData !== "object") {
+          throw new Error("The full job details could not be found for this booking.");
+        }
+
+        const bookingPayload = buildFullTemplatePayloadFromSource({
+          ...row,
+          ...sourceData,
+          customer_email: currentUserEmail
+        });
+        const addresses = getTemplateAddressesFromPayload(bookingPayload);
+        if (!templateAddressHasData(addresses.collection) || !templateAddressHasData(addresses.delivery)) {
+          throw new Error("This job does not contain enough collection and delivery information to make a template.");
+        }
+
+        const suggestedName = buildTemplateNameFromBooking(addresses.collection, addresses.delivery);
+        const templateName = prompt("Template name", suggestedName);
+        if (templateName === null) return;
+        const cleanName = String(templateName || "").trim() || suggestedName;
+        setPreviousStatus("Creating template...", "warn");
+
         const { error } = await sb
           .from(CLIENT_BOOKING_TEMPLATES_TABLE)
           .insert([buildTemplateInsertPayload(
@@ -5274,6 +5467,40 @@
       } finally {
         creatingHistoryTemplateIds.delete(cleanId);
       }
+    }
+
+    function populateTemplateAddressEditor(prefix, address = {}) {
+      setFieldValue(`${prefix}_address_search`, address.search || formatTemplateAddress(address));
+      setFieldValue(`${prefix}_name`, address.name);
+      setFieldValue(`${prefix}_pc`, address.postcode);
+      setFieldValue(`${prefix}_street`, address.street);
+      setFieldValue(`${prefix}_town`, address.town);
+      setFieldValue(`${prefix}_county`, address.county);
+      setFieldValue(`${prefix}_phone`, address.phone);
+      setFieldValue(`${prefix}_email`, address.email);
+    }
+
+    function editTemplateAddresses(id) {
+      const template = currentTemplates.find((item) => String(item.id) === String(id));
+      if (!template) {
+        setTemplateStatus("Could not find that template. Refresh and try once more.", "error");
+        return;
+      }
+
+      clearTemplateForm(false);
+      editingTemplateId = String(template.id);
+      setFieldValue("template_name", template.name);
+      populateTemplateAddressEditor("t_coll", template.collection);
+      populateTemplateAddressEditor("t_del", template.delivery);
+      if (templateSaveButton) templateSaveButton.textContent = "Save changes";
+      switchTemplateTab("create");
+      setTemplateStatus("Update the full collection and delivery addresses, then save the template.", "warn");
+    }
+
+    function cancelTemplateEdit() {
+      editingTemplateId = "";
+      clearTemplateForm(false);
+      switchTemplateTab("view");
     }
 
     function clearTemplateForm(showMessage = true) {
@@ -5368,13 +5595,19 @@
         loadButton.textContent = "Load into booking";
         loadButton.addEventListener("click", () => loadTemplateIntoBooking(template.id));
 
+        const editButton = document.createElement("button");
+        editButton.type = "button";
+        editButton.className = "action-btn secondary";
+        editButton.textContent = "Edit addresses";
+        editButton.addEventListener("click", () => editTemplateAddresses(template.id));
+
         const deleteButton = document.createElement("button");
         deleteButton.type = "button";
         deleteButton.className = "action-btn secondary";
         deleteButton.textContent = "Delete";
         deleteButton.addEventListener("click", () => deleteTemplate(template.id));
 
-        actions.append(loadButton, deleteButton);
+        actions.append(loadButton, editButton, deleteButton);
         head.append(titleWrap, actions);
 
         const grid = document.createElement("div");
@@ -5564,7 +5797,13 @@
       if (!row || !row.id || isPreviousBookingCompleted(row)) return false;
       const dueTime = getPreviousBookingDueDateValue(row);
       if (!dueTime) return false;
-      return dueTime - Date.now() >= 24 * 60 * 60 * 1000;
+      return dueTime - Date.now() > CUSTOMER_BOOKING_EDIT_CUTOFF_MS;
+    }
+
+    function getPreviousBookingEditTitle(row) {
+      return canEditPreviousBooking(row)
+        ? "Edit booking"
+        : "Editing closes 48 hours before collection";
     }
 
     function isDeliveryOnlyPreviousRow(row) {
@@ -5965,7 +6204,10 @@
         const podUrl = getPreviousPodUrl(row);
         const podButton = podUrl ? `<button type="button" class="status-pill accepted previous-pill" data-pod-url="${escapeHtml(podUrl)}" onclick="openPreviousPod(this.dataset.podUrl)">View POD</button>` : "";
         const podThumbnail = renderPreviousPodThumbnail(podUrl);
-        const editButton = canEditPreviousBooking(row) ? `<button type="button" class="edit-result-btn previous-pill" onclick="editPreviousBooking('${escapeHtml(row.id)}')">Edit</button>` : "";
+        const editAllowed = canEditPreviousBooking(row);
+        const editButton = previousBookingMode === "active"
+          ? `<button type="button" class="edit-result-btn previous-pill" title="${escapeHtml(getPreviousBookingEditTitle(row))}" ${editAllowed ? `onclick="editPreviousBooking('${escapeHtml(row.id)}')"` : "disabled"}>Edit</button>`
+          : "";
         const templateButton = previousBookingMode === "history"
           ? `<button type="button" class="edit-result-btn previous-pill" onclick="createTemplateFromHistoryJob('${escapeHtml(row.id)}')">Template</button>`
           : "";
@@ -6032,6 +6274,10 @@
             const templateButton = previousBookingMode === "history"
               ? `<button type="button" class="booking-slim-eye-btn booking-slim-template-btn" aria-label="Create template from job" title="Create template from this job" onclick="event.stopPropagation(); createTemplateFromHistoryJob('${escapeHtml(rowId)}')">Template</button>`
               : "";
+            const editAllowed = canEditPreviousBooking(row);
+            const editButton = previousBookingMode === "active"
+              ? `<button type="button" class="booking-slim-eye-btn booking-slim-edit-btn" aria-label="Edit booking" title="${escapeHtml(getPreviousBookingEditTitle(row))}" ${editAllowed ? `onclick="event.stopPropagation(); editPreviousBooking('${escapeHtml(rowId)}')"` : "disabled"}>Edit</button>`
+              : "";
             const detail = isExpanded ? `
               <div class="booking-slim-detail">
                 <div class="booking-slim-detail-head">
@@ -6063,6 +6309,7 @@
               <div class="booking-slim-action-cell">
                 ${templateButton}
                 <button type="button" class="booking-slim-eye-btn" aria-label="View progress" title="View progress" onclick="event.stopPropagation(); openProgressModal('${escapeHtml(rowId)}')">&#128065;</button>
+                ${editButton}
                 <button type="button" class="booking-slim-eye-btn" aria-label="Message about job" title="Message about job" onclick="event.stopPropagation(); openMessagesForJob('${escapeHtml(rowId)}')">Msg</button>
               </div>
             </div>
@@ -6204,7 +6451,10 @@
       try {
         const { data, error } = await sb.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        if (data && data.session) await setSignedInView(data.session);
+        if (data && data.session) {
+          savePortalSessionBackup(data.session);
+          await setSignedInView(data.session);
+        }
         loginForm.reset();
       } catch (error) {
         const message = error && error.message ? error.message : String(error);
@@ -6234,7 +6484,7 @@
 
       try {
         if (currentPreviousBookingEdit) {
-          await savePreviousBookingReferenceChanges();
+          await saveActiveBookingChanges();
         } else if (currentEditRequest) {
           const { error } = await sb.rpc("update_booking_request_from_client", {
             request_id: currentEditRequest.id,
