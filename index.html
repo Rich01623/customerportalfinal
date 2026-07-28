@@ -2464,9 +2464,38 @@
     const MESSAGE_INLINE_ATTACHMENT_MAX_MB = 1.5;
     const MESSAGE_POLL_INTERVAL_MS = 10000;
     const PORTAL_PRESENCE_INTERVAL_MS = 45000;
+    const customerPortalStorageCandidates = [];
+    try {
+      if (window.localStorage) customerPortalStorageCandidates.push(window.localStorage);
+    } catch (_) {}
+    try {
+      if (window.sessionStorage) customerPortalStorageCandidates.push(window.sessionStorage);
+    } catch (_) {}
+    const customerPortalAuthStorage = {
+      getItem(key) {
+        for (const storage of customerPortalStorageCandidates) {
+          try {
+            const value = storage.getItem(key);
+            if (value) return value;
+          } catch (_) {}
+        }
+        return null;
+      },
+      setItem(key, value) {
+        customerPortalStorageCandidates.forEach((storage) => {
+          try { storage.setItem(key, value); } catch (_) {}
+        });
+      },
+      removeItem(key) {
+        customerPortalStorageCandidates.forEach((storage) => {
+          try { storage.removeItem(key); } catch (_) {}
+        });
+      }
+    };
     const customerPortalAuthOptions = {
       auth: {
         storageKey: "frost_customer_portal_auth_v1",
+        storage: customerPortalAuthStorage,
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: false
@@ -5080,7 +5109,6 @@
       setTemplateStatus("Saving template...", "warn");
 
       try {
-        await verifyTemplateOwnerSession();
         const { error } = await sb
           .from(CLIENT_BOOKING_TEMPLATES_TABLE)
           .insert([buildTemplateInsertPayload(name, collection, delivery)]);
@@ -5169,16 +5197,6 @@
         : message;
     }
 
-    async function verifyTemplateOwnerSession() {
-      const { data, error } = await sb.auth.getSession();
-      const sessionUser = data && data.session && data.session.user;
-      if (error || !sessionUser || !sessionUser.id) {
-        throw new Error("Your customer login has expired. Please sign in again, then retry the template.");
-      }
-      currentUserId = String(sessionUser.id).trim();
-      return currentUserId;
-    }
-
     async function saveCurrentBookingAsTemplate() {
       const collection = readBookingTemplateAddress("n_coll");
       const delivery = readBookingTemplateAddress("n_del");
@@ -5205,7 +5223,6 @@
       setStatus("Saving template...", "warn");
 
       try {
-        await verifyTemplateOwnerSession();
         const { error } = await sb
           .from(CLIENT_BOOKING_TEMPLATES_TABLE)
           .insert([buildTemplateInsertPayload(cleanName, collection, delivery, totalPrice, bookingPayload)]);
@@ -5241,7 +5258,6 @@
       creatingHistoryTemplateIds.add(cleanId);
       setPreviousStatus("Creating template...", "warn");
       try {
-        await verifyTemplateOwnerSession();
         const { error } = await sb
           .from(CLIENT_BOOKING_TEMPLATES_TABLE)
           .insert([buildTemplateInsertPayload(
