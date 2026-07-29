@@ -2475,6 +2475,8 @@
     const CLIENT_BOOKING_TEMPLATES_TABLE = "client_booking_templates";
     const PORTAL_MESSAGES_TABLE = "portal_messages";
     const PORTAL_PRESENCE_TABLE = "portal_client_presence";
+    const CLIENT_PORTAL_PREFERENCES_TABLE = "customer_portal_preferences";
+    const CLIENT_ASSET_BUCKET = "customer-portal-assets";
     const MESSAGE_ATTACHMENT_BUCKET = "portal-message-files";
     const MESSAGE_ATTACHMENT_FALLBACK_BUCKETS = ["portal-message-files", "pods", "pod-uploads"];
     const MESSAGE_ATTACHMENT_MAX_MB = 15;
@@ -2482,35 +2484,49 @@
     const MESSAGE_POLL_INTERVAL_MS = 10000;
     const PORTAL_PRESENCE_INTERVAL_MS = 45000;
     const CUSTOMER_PORTAL_AUTH_STORAGE_KEY = "frost_customer_portal_auth_v1";
-    const CUSTOMER_PORTAL_SESSION_BACKUP_KEY = "frost_customer_portal_session_backup_v1";
-    const customerPortalStorageCandidates = [];
-    try {
-      if (window.localStorage) customerPortalStorageCandidates.push(window.localStorage);
-    } catch (_) {}
-    try {
-      if (window.sessionStorage) customerPortalStorageCandidates.push(window.sessionStorage);
-    } catch (_) {}
-    const customerPortalAuthStorage = {
-      getItem(key) {
-        for (const storage of customerPortalStorageCandidates) {
-          try {
-            const value = storage.getItem(key);
-            if (value) return value;
-          } catch (_) {}
-        }
-        return null;
-      },
-      setItem(key, value) {
-        customerPortalStorageCandidates.forEach((storage) => {
-          try { storage.setItem(key, value); } catch (_) {}
-        });
-      },
-      removeItem(key) {
-        customerPortalStorageCandidates.forEach((storage) => {
+    const LEGACY_PORTAL_SESSION_KEYS = [
+      "frost_customer_portal_session_backup_v1",
+      "frost_customer_portal_authorised_email_v1"
+    ];
+
+    function selectCustomerPortalAuthStorage() {
+      const candidates = [];
+      try { candidates.push(window.localStorage); } catch (_) {}
+      try { candidates.push(window.sessionStorage); } catch (_) {}
+
+      for (const storage of candidates) {
+        try {
+          const probeKey = "__frost_portal_storage_probe__";
+          storage.setItem(probeKey, "1");
+          storage.removeItem(probeKey);
+          return storage;
+        } catch (_) {}
+      }
+
+      const values = new Map();
+      return {
+        getItem: (key) => values.has(key) ? values.get(key) : null,
+        setItem: (key, value) => values.set(key, value),
+        removeItem: (key) => values.delete(key)
+      };
+    }
+
+    function clearLegacyPortalSessionArtifacts() {
+      const storages = [];
+      try { storages.push(window.localStorage); } catch (_) {}
+      try { storages.push(window.sessionStorage); } catch (_) {}
+      LEGACY_PORTAL_SESSION_KEYS.forEach((key) => {
+        storages.forEach((storage) => {
           try { storage.removeItem(key); } catch (_) {}
         });
-      }
-    };
+        try {
+          document.cookie = `${encodeURIComponent(key)}=; Max-Age=0; Path=/; SameSite=Lax${window.location.protocol === "https:" ? "; Secure" : ""}`;
+        } catch (_) {}
+      });
+    }
+
+    const customerPortalAuthStorage = selectCustomerPortalAuthStorage();
+    clearLegacyPortalSessionArtifacts();
     const customerPortalAuthOptions = {
       auth: {
         storageKey: CUSTOMER_PORTAL_AUTH_STORAGE_KEY,
@@ -2521,29 +2537,6 @@
       }
     };
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, customerPortalAuthOptions);
-
-    function savePortalSessionBackup(session) {
-      if (!session || !session.access_token || !session.refresh_token) return;
-      customerPortalAuthStorage.setItem(CUSTOMER_PORTAL_SESSION_BACKUP_KEY, JSON.stringify({
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
-        expires_at: session.expires_at || null
-      }));
-    }
-
-    function readPortalSessionBackup() {
-      try {
-        const value = customerPortalAuthStorage.getItem(CUSTOMER_PORTAL_SESSION_BACKUP_KEY);
-        const session = value ? JSON.parse(value) : null;
-        return session && session.access_token && session.refresh_token ? session : null;
-      } catch (_) {
-        return null;
-      }
-    }
-
-    function clearPortalSessionBackup() {
-      customerPortalAuthStorage.removeItem(CUSTOMER_PORTAL_SESSION_BACKUP_KEY);
-    }
 
     const loginView = document.getElementById("login-view");
     const loginForm = document.getElementById("login-form");
@@ -2827,6 +2820,80 @@
     function getClientCompanyLogo(user) {
       const metadata = user && user.user_metadata ? user.user_metadata : {};
       return String(metadata.company_logo_data_url || "").trim();
+    }
+
+    function isEmbeddedClientLogo(value) {
+      return /^data:image\//i.test(String(value || "").trim());
+    }
+
+    async function refreshLegacyClientLogoSession(session) {
+      if (!isEmbeddedClientLogo(getClientCompanyLogo(session && session.user))) return session;
+      const { data, error } = await sb.auth.refreshSession();
+      if (error) throw error;
+      return data && data.session ? data.session : session;
+    }
+
+    async function loadClientPortalPreferences(userId) {
+      const cleanUserId = String(userId || "").trim();
+      if (!cleanUserId) return null;
+      const { data, error } = await sb
+        .from(CLIENT_PORTAL_PREFERENCES_TABLE)
+        .select("company_logo_url")
+        .eq("user_id", cleanUserId)
+        .maybeSingle();
+      if (error) throw error;
+      return data || null;
+    }
+
+    async function saveClientPortalPreferences(userId, companyLogoUrl) {
+      const cleanUserId = String(userId || "").trim();
+      if (!cleanUserId) throw new Error("Your customer login could not be identified.");
+      const { error } = await sb
+        .from(CLIENT_PORTAL_PREFERENCES_TABLE)
+        .upsert({
+          user_id: cleanUserId,
+          company_logo_url: String(companyLogoUrl || "").trim() || null,
+          updated_at: new Date().toISOString()
+        }, { onConflict: "user_id" });
+      if (error) throw error;
+    }
+
+    function clientLogoDataUrlToBlob(dataUrl) {
+      const match = String(dataUrl || "").match(/^data:([^;,]+);base64,(.+)$/i);
+      if (!match) throw new Error("The selected logo could not be prepared for upload.");
+      const binary = atob(match[2]);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      return new Blob([bytes], { type: match[1] || "image/png" });
+    }
+
+    function getClientLogoStoragePath(userId) {
+      return `customers/${String(userId || "").trim()}/company-logo.png`;
+    }
+
+    async function uploadClientCompanyLogo(userId, dataUrl) {
+      const blob = clientLogoDataUrlToBlob(dataUrl);
+      const storagePath = getClientLogoStoragePath(userId);
+      const { error } = await sb.storage
+        .from(CLIENT_ASSET_BUCKET)
+        .upload(storagePath, blob, {
+          cacheControl: "3600",
+          contentType: blob.type || "image/png",
+          upsert: true
+        });
+      if (error) throw error;
+
+      const { data } = sb.storage.from(CLIENT_ASSET_BUCKET).getPublicUrl(storagePath);
+      const publicUrl = String(data && data.publicUrl || "").trim();
+      if (!publicUrl) throw new Error("The uploaded logo URL could not be created.");
+      return `${publicUrl}?v=${Date.now()}`;
+    }
+
+    async function removeClientCompanyLogo(userId) {
+      const { error } = await sb.storage
+        .from(CLIENT_ASSET_BUCKET)
+        .remove([getClientLogoStoragePath(userId)]);
+      if (error && !/not found/i.test(String(error.message || error))) throw error;
     }
 
     function clampHomeBgIntensity(value) {
@@ -3146,14 +3213,22 @@
       const cleanEmail = String(email || "").trim().toLowerCase();
       if (!cleanEmail) return null;
 
-      const profiles = await fetchClientAccountProfilesByEmail(escapeSupabaseLikeValue(cleanEmail), 10);
-      return (profiles || []).find((profile) =>
-        String(profile.accounts_email || "").trim().toLowerCase() === cleanEmail
-      ) || null;
+      let lastError = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const profiles = await fetchClientAccountProfilesByEmail(escapeSupabaseLikeValue(cleanEmail), 10);
+          return (profiles || []).find((profile) =>
+            String(profile.accounts_email || "").trim().toLowerCase() === cleanEmail
+          ) || null;
+        } catch (error) {
+          lastError = error;
+          if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+      }
+      throw lastError || new Error("Customer access could not be checked.");
     }
 
     async function rejectUnauthorisedPortalUser(message) {
-      clearPortalSessionBackup();
       try {
         await sb.auth.signOut();
       } catch (error) {
@@ -3166,8 +3241,7 @@
     async function setSignedInView(session) {
       const checkToken = portalAccessCheckToken + 1;
       portalAccessCheckToken = checkToken;
-      const signedInEmail = String(session && session.user && session.user.email || "").trim().toLowerCase();
-      savePortalSessionBackup(session);
+      let effectiveSession = session;
 
       loginView.classList.remove("hidden");
       document.body.classList.add("login-screen");
@@ -3177,6 +3251,18 @@
       signOutButton.classList.add("hidden");
       connectionStatus.textContent = "Checking access";
       setLoginStatus("Checking booking portal access...", "warn");
+
+      try {
+        effectiveSession = await refreshLegacyClientLogoSession(session);
+      } catch (error) {
+        const message = error && error.message ? error.message : String(error);
+        if (portalAccessCheckToken !== checkToken) return;
+        setSignedOutView();
+        setLoginStatus("Could not refresh your saved customer login. Please sign in again. " + message, "error");
+        return;
+      }
+
+      const signedInEmail = String(effectiveSession && effectiveSession.user && effectiveSession.user.email || "").trim().toLowerCase();
 
       if (!signedInEmail) {
         await rejectUnauthorisedPortalUser("This account is not authorised to access the booking portal.");
@@ -3188,7 +3274,9 @@
         authorisedProfile = await getAuthorisedClientProfile(signedInEmail);
       } catch (error) {
         const message = error && error.message ? error.message : String(error);
-        await rejectUnauthorisedPortalUser("Could not verify booking portal access: " + message);
+        if (portalAccessCheckToken !== checkToken) return;
+        setSignedOutView();
+        setLoginStatus("Could not verify booking portal access. Your saved login has been kept; refresh to retry. " + message, "error");
         return;
       }
 
@@ -3199,12 +3287,20 @@
         return;
       }
 
-      currentUserId = String(session && session.user && session.user.id || "").trim();
-      currentUserEmail = String(session && session.user && session.user.email || "").trim().toLowerCase();
-      currentUserName = getClientDisplayName(session && session.user);
-      currentCompanyLogoDataUrl = getClientCompanyLogo(session && session.user);
-      currentHomeBgIntensity = getClientHomeBgIntensity(session && session.user);
-      currentHomeStatsHidden = !getClientHomeStatsVisible(session && session.user);
+      currentUserId = String(effectiveSession && effectiveSession.user && effectiveSession.user.id || "").trim();
+      currentUserEmail = String(effectiveSession && effectiveSession.user && effectiveSession.user.email || "").trim().toLowerCase();
+      currentUserName = getClientDisplayName(effectiveSession && effectiveSession.user);
+      currentCompanyLogoDataUrl = getClientCompanyLogo(effectiveSession && effectiveSession.user);
+      currentHomeBgIntensity = getClientHomeBgIntensity(effectiveSession && effectiveSession.user);
+      currentHomeStatsHidden = !getClientHomeStatsVisible(effectiveSession && effectiveSession.user);
+      try {
+        const preferences = await loadClientPortalPreferences(currentUserId);
+        if (preferences && Object.prototype.hasOwnProperty.call(preferences, "company_logo_url")) {
+          currentCompanyLogoDataUrl = String(preferences.company_logo_url || "").trim();
+        }
+      } catch (error) {
+        console.warn("Could not load customer portal preferences:", error);
+      }
       loginView.classList.add("hidden");
       document.body.classList.remove("login-screen");
       appHeader.classList.remove("hidden");
@@ -3225,35 +3321,27 @@
     }
 
     async function initialiseAuth() {
-      const { data } = await sb.auth.getSession();
-      let session = data && data.session;
-      if (!session) {
-        const backup = readPortalSessionBackup();
-        if (backup) {
-          const restored = await sb.auth.setSession({
-            access_token: backup.access_token,
-            refresh_token: backup.refresh_token
-          });
-          session = restored.data && restored.data.session;
-          if (restored.error || !session) clearPortalSessionBackup();
-        }
-      }
-      if (session) await setSignedInView(session);
-      else setSignedOutView();
-
-      sb.auth.onAuthStateChange(async (_event, session) => {
-        if (session) {
-          savePortalSessionBackup(session);
-          await setSignedInView(session);
-        }
-        else setSignedOutView();
+      sb.auth.onAuthStateChange((event) => {
+        if (event !== "SIGNED_OUT") return;
+        setTimeout(() => setSignedOutView(), 0);
       });
+
+      try {
+        const { data, error } = await sb.auth.getSession();
+        if (error) throw error;
+        if (data && data.session) await setSignedInView(data.session);
+        else setSignedOutView();
+      } catch (error) {
+        const message = error && error.message ? error.message : String(error);
+        setSignedOutView();
+        setLoginStatus("Could not restore your saved login. Please sign in again. " + message, "error");
+      }
     }
 
     async function signOutClient() {
       await updatePortalPresence(false);
-      clearPortalSessionBackup();
       await sb.auth.signOut();
+      setSignedOutView();
     }
 
     async function openBookingForm(showAdvanceWarning = false) {
@@ -4059,12 +4147,18 @@
 
       try {
         currentHomeStatsHidden = !(settingsShowHomeStats && settingsShowHomeStats.checked);
+        let savedCompanyLogoUrl = currentCompanyLogoDataUrl;
+        if (isEmbeddedClientLogo(savedCompanyLogoUrl)) {
+          savedCompanyLogoUrl = await uploadClientCompanyLogo(currentUserId, savedCompanyLogoUrl);
+        }
+        await saveClientPortalPreferences(currentUserId, savedCompanyLogoUrl);
+        if (!savedCompanyLogoUrl) await removeClientCompanyLogo(currentUserId);
+
         const { error } = await sb.auth.updateUser({
           data: {
             display_name: displayName,
             full_name: displayName,
             name: displayName,
-            company_logo_data_url: currentCompanyLogoDataUrl,
             home_bg_intensity: currentHomeBgIntensity,
             home_stats_visible: !currentHomeStatsHidden,
             home_stats_hidden: currentHomeStatsHidden
@@ -4072,6 +4166,7 @@
         });
         if (error) throw error;
         currentUserName = displayName;
+        currentCompanyLogoDataUrl = savedCompanyLogoUrl;
         applyCompanyLogo();
         applyHomeBackgroundIntensity();
         applyHomeStatsVisibility();
@@ -6452,7 +6547,6 @@
         const { data, error } = await sb.auth.signInWithPassword({ email, password });
         if (error) throw error;
         if (data && data.session) {
-          savePortalSessionBackup(data.session);
           await setSignedInView(data.session);
         }
         loginForm.reset();
