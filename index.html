@@ -439,7 +439,9 @@
     }
 
     .booking-result.accepted { border-left-color: var(--green); }
-    .booking-result.rejected { border-left-color: var(--frost-red); }
+    .booking-result.rejected,
+    .booking-result.cancelled { border-left-color: var(--frost-red); }
+    .booking-result.cancelled { background: #fff7f7; }
 
     .booking-result-head {
       display: flex;
@@ -471,7 +473,8 @@
     }
 
     .status-pill.accepted { background: var(--green); }
-    .status-pill.rejected { background: var(--frost-red); }
+    .status-pill.rejected,
+    .status-pill.cancelled { background: var(--frost-red); }
     button.status-pill {
       cursor: pointer;
       font-family: inherit;
@@ -543,8 +546,8 @@
 
     .booking-slim-row {
       display: grid;
-      grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) minmax(150px, 1.2fr) minmax(120px, 1fr) minmax(135px, 1fr) minmax(135px, 1fr) 170px;
-      min-width: 1026px;
+      grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) minmax(150px, 1.2fr) minmax(120px, 1fr) minmax(135px, 1fr) minmax(135px, 1fr) 250px;
+      min-width: 1106px;
       border-top: 1px solid #e5e7eb;
       color: #334155;
       font-size: 0.78rem;
@@ -557,6 +560,11 @@
 
     .booking-slim-row.clickable:hover,
     .booking-slim-row.expanded {
+      background: #fff7f7;
+      box-shadow: inset 4px 0 0 var(--frost-red);
+    }
+
+    .booking-slim-row.cancelled {
       background: #fff7f7;
       box-shadow: inset 4px 0 0 var(--frost-red);
     }
@@ -631,8 +639,24 @@
       font-weight: 850;
     }
 
+    .cancel-booking-btn {
+      width: auto;
+      min-width: 76px;
+      padding: 0 10px;
+      border-color: var(--frost-red);
+      background: var(--frost-red);
+      color: #fff;
+      font-size: 0.7rem;
+      font-weight: 850;
+    }
+
+    .cancel-booking-btn:hover:not(:disabled) {
+      background: #971923;
+      color: #fff;
+    }
+
     .booking-slim-detail {
-      min-width: 1026px;
+      min-width: 1106px;
       padding: 12px;
       border-top: 1px solid #fecaca;
       background: #fffafa;
@@ -876,6 +900,19 @@
       font-size: 0.72rem;
       font-weight: 800;
       text-transform: uppercase;
+    }
+
+    .quote-time-window {
+      margin: -1px 0 8px;
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--frost-red);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }
+
+    .quote-time-window .form-group {
+      margin: 0;
     }
 
     .quote-switch {
@@ -1789,6 +1826,7 @@
     <button type="button" data-nav="requests" onclick="openBookingStatusView()">Awaiting Approval</button>
     <button type="button" data-nav="templates" onclick="openTemplatesView()">Templates</button>
     <button type="button" data-nav="active" onclick="openPreviousBookingsView('active')">Active Bookings</button>
+    <button type="button" data-nav="cancelled" onclick="openPreviousBookingsView('cancelled')">Cancelled Jobs</button>
     <button type="button" data-nav="history" onclick="openPreviousBookingsView('history')">History</button>
     <button type="button" data-nav="messages" onclick="openMessagesView()">Messages <span id="portal-message-unread" class="nav-unread-badge hidden">0</span></button>
     <button type="button" data-nav="contact" onclick="openPlaceholderSection('contact')">Contact us</button>
@@ -2313,6 +2351,33 @@
                   <span class="quote-switch"><input type="checkbox" id="quote-parking" onchange="quoteUpdate();"><span class="quote-slider"></span></span>
                 </label>
 
+                <label class="quote-toggle" for="quote-advanced-booking">
+                  <span class="quote-toggle-text">
+                    <span>Load Requires Advanced Booking</span>
+                    <p>Planner must book the load before arrival</p>
+                  </span>
+                  <span class="quote-switch"><input type="checkbox" id="quote-advanced-booking"><span class="quote-slider"></span></span>
+                </label>
+
+                <label class="quote-toggle" for="quote-timed-booking">
+                  <span class="quote-toggle-text">
+                    <span>Timed Booking</span>
+                    <p>Add a required arrival window</p>
+                  </span>
+                  <span class="quote-switch"><input type="checkbox" id="quote-timed-booking" onchange="quoteToggleTimedBooking();"><span class="quote-slider"></span></span>
+                </label>
+
+                <div id="quote-timed-booking-window" class="quote-row quote-time-window hidden" aria-hidden="true">
+                  <div class="form-group">
+                    <label for="quote-timed-booking-from">Between</label>
+                    <input type="time" id="quote-timed-booking-from">
+                  </div>
+                  <div class="form-group">
+                    <label for="quote-timed-booking-to">And</label>
+                    <input type="time" id="quote-timed-booking-to">
+                  </div>
+                </div>
+
               </section>
             </div>
 
@@ -2679,11 +2744,6 @@
       "n_10",
       "n_customers_own_invoice_number"
     ]);
-    const fullTemplateEditableFieldIds = new Set([
-      "n_coll_dt",
-      "n_del_dt",
-      "n_customers_own_invoice_number"
-    ]);
     const activeBookingLockedFieldIds = new Set([
       "n_job_contract_type",
       "n_cust_name",
@@ -2697,7 +2757,6 @@
       "customer_name",
       "customer_phone",
       "customer_email",
-      "job_notes",
       "coll_address_search",
       "coll_cust_name",
       "coll_phone",
@@ -2706,7 +2765,6 @@
       "coll_street",
       "coll_town",
       "coll_county",
-      "coll_ref",
       "del_address_search",
       "del_cust_name",
       "del_phone",
@@ -2715,7 +2773,6 @@
       "del_street",
       "del_town",
       "del_county",
-      "del_ref",
       "coll_postcode_2",
       "coll_town_2",
       "del_postcode_2",
@@ -3120,17 +3177,25 @@
 
       try {
         const weekWindow = getCurrentWeekWindow();
-        const [requestsResult, previousResult] = await Promise.all([
+        const [requestsResult, previousResult, cancelledResult] = await Promise.all([
           sb.rpc("lookup_booking_requests", { request_email: currentUserEmail }),
-          sb.rpc("lookup_previous_bookings", { request_email: currentUserEmail })
+          sb.rpc("lookup_previous_bookings", { request_email: currentUserEmail }),
+          sb.rpc("lookup_cancelled_customer_bookings", { request_email: currentUserEmail })
         ]);
 
         if (requestId !== homeSnapshotRequestId) return;
         if (requestsResult.error) throw requestsResult.error;
         if (previousResult.error) throw previousResult.error;
 
-        const requestRows = requestsResult.data || [];
-        const bookingRows = (previousResult.data || []).filter((row) => !isDeliveryOnlyPreviousRow(row));
+        const cancelledQuoteIds = new Set(!cancelledResult.error ? (cancelledResult.data || [])
+          .filter((row) => String(row.cancellation_source || row.record_source || "").toLowerCase() === "quote")
+          .map((row) => String(row.id || ""))
+          .filter(Boolean) : []);
+        const requestRows = (requestsResult.data || []).filter((row) => !isCustomerCancelledBooking(row));
+        const bookingRows = (previousResult.data || [])
+          .filter((row) => !isDeliveryOnlyPreviousRow(row))
+          .filter((row) => !isCustomerCancelledBooking(row))
+          .filter((row) => !cancelledQuoteIds.has(String(row.id || "")));
         const weeklyRequestCount = requestRows.filter((row) =>
           isDateThisWeek(row.submitted_at || row.created_at, weekWindow)
         ).length;
@@ -3156,7 +3221,7 @@
       try {
         const saved = localStorage.getItem(ACTIVE_VIEW_STORAGE_KEY);
         if (saved === "previous") return "active";
-        return ["home", "form", "requests", "active", "history", "quote", "templates", "messages", "settings", "contact", "terms"].includes(saved) ? saved : "home";
+        return ["home", "form", "requests", "active", "cancelled", "history", "quote", "templates", "messages", "settings", "contact", "terms"].includes(saved) ? saved : "home";
       } catch (error) {
         return "home";
       }
@@ -3166,7 +3231,7 @@
       const view = getRememberedView();
       if (view === "form") openBookingForm(false);
       else if (view === "requests") openBookingStatusView();
-      else if (view === "active" || view === "history") openPreviousBookingsView(view);
+      else if (view === "active" || view === "cancelled" || view === "history") openPreviousBookingsView(view);
       else if (view === "quote") openPlaceholderSection("quote");
       else if (view === "templates") openTemplatesView();
       else if (view === "messages") openMessagesView();
@@ -3375,13 +3440,21 @@
     }
 
     function openPreviousBookingsView(mode = "active") {
-      previousBookingMode = mode === "history" ? "history" : "active";
+      previousBookingMode = mode === "history" ? "history" : mode === "cancelled" ? "cancelled" : "active";
       expandedSlimBookingId = "";
       rememberView(previousBookingMode);
       hideAppViews();
       previousView.classList.remove("hidden");
-      if (previousTitle) previousTitle.textContent = previousBookingMode === "history" ? "History" : "Active Bookings";
-      if (previousSearchLabel) previousSearchLabel.textContent = previousBookingMode === "history" ? "Search history" : "Search active bookings";
+      if (previousTitle) previousTitle.textContent = previousBookingMode === "history"
+        ? "History"
+        : previousBookingMode === "cancelled"
+          ? "Cancelled Jobs"
+          : "Active Bookings";
+      if (previousSearchLabel) previousSearchLabel.textContent = previousBookingMode === "history"
+        ? "Search history"
+        : previousBookingMode === "cancelled"
+          ? "Search cancelled jobs"
+          : "Search active bookings";
       previousStatus.textContent = "";
       previousStatus.className = "status";
       previousSearchTerm = "";
@@ -4297,20 +4370,7 @@
 
     function applyFullTemplateFormLocks() {
       clearBookingFormLocks();
-      bookingForm.querySelectorAll("input, select, textarea").forEach((field) => {
-        if (fullTemplateEditableFieldIds.has(field.id)) {
-          field.disabled = false;
-          field.readOnly = false;
-          field.title = "";
-          return;
-        }
-        field.disabled = true;
-        field.title = "This value comes from the selected template and cannot be changed.";
-      });
-      document.querySelectorAll(".mode-btn").forEach((button) => {
-        button.disabled = true;
-      });
-      if (saveBookingTemplateButton) saveBookingTemplateButton.disabled = true;
+      lockQuotedPriceField();
     }
 
     function populateBookingFormFromRequest(request) {
@@ -4843,6 +4903,53 @@
       return surcharges;
     }
 
+    function quoteToggleTimedBooking() {
+      const toggle = quoteField("quote-timed-booking");
+      const windowFields = quoteField("quote-timed-booking-window");
+      const enabled = !!(toggle && toggle.checked);
+      if (windowFields) {
+        windowFields.classList.toggle("hidden", !enabled);
+        windowFields.setAttribute("aria-hidden", enabled ? "false" : "true");
+      }
+      if (!enabled) {
+        const fromField = quoteField("quote-timed-booking-from");
+        const toField = quoteField("quote-timed-booking-to");
+        if (fromField) fromField.value = "";
+        if (toField) toField.value = "";
+      }
+    }
+
+    function getQuoteBookingInstructions() {
+      const instructions = [];
+      const advancedBooking = quoteField("quote-advanced-booking");
+      const timedBooking = quoteField("quote-timed-booking");
+      const fromTime = String(quoteField("quote-timed-booking-from") && quoteField("quote-timed-booking-from").value || "").trim();
+      const toTime = String(quoteField("quote-timed-booking-to") && quoteField("quote-timed-booking-to").value || "").trim();
+
+      if (advancedBooking && advancedBooking.checked) {
+        instructions.push("LOAD REQUIRES ADVANCED BOOKING");
+      }
+      if (timedBooking && timedBooking.checked && fromTime && toTime) {
+        instructions.push(`TIMED BOOKING: BETWEEN ${fromTime} AND ${toTime}`);
+      }
+      return instructions;
+    }
+
+    function validateQuoteBookingInstructions() {
+      const timedBooking = quoteField("quote-timed-booking");
+      if (!timedBooking || !timedBooking.checked) return true;
+
+      const fromField = quoteField("quote-timed-booking-from");
+      const toField = quoteField("quote-timed-booking-to");
+      if (!fromField || !toField || !fromField.value || !toField.value) {
+        setQuoteStatus("Please enter both times for the timed booking window.", "error");
+        if (fromField && !fromField.value) fromField.focus();
+        else if (toField) toField.focus();
+        return false;
+      }
+      return true;
+    }
+
     function applyQuoteAddressToBooking(kind, address, place) {
       const isCollection = kind === "collection";
       setFieldValue(isCollection ? "n_coll_address_search" : "n_del_address_search", address);
@@ -4860,9 +4967,11 @@
       const notes = [];
       const total = getQuoteTotalValue();
       const surcharges = getQuoteSurchargeNotes();
+      const bookingInstructions = getQuoteBookingInstructions();
 
       if (total) notes.push("Online quote generated: GBP " + total.toFixed(2) + " ex VAT");
       if (surcharges.length) notes.push("Quote surcharges: " + surcharges.join(", "));
+      notes.push(...bookingInstructions);
       return notes.join("\n");
     }
 
@@ -4887,6 +4996,8 @@
         setQuoteStatus("Please choose collection and delivery dates before continuing to booking.", "error");
         return;
       }
+
+      if (!validateQuoteBookingInstructions()) return;
 
       await openBookingForm(true);
       applyQuoteAddressToBooking("collection", collectionAddress, quoteSelectedPlaces.pickup);
@@ -5026,10 +5137,11 @@
       });
       const stops = quoteField("quote-stops");
       if (stops) stops.innerHTML = "";
-      ["quote-tail-lift", "quote-pre10", "quote-parking"].forEach((id) => {
+      ["quote-tail-lift", "quote-pre10", "quote-parking", "quote-advanced-booking", "quote-timed-booking"].forEach((id) => {
         const field = quoteField(id);
         if (field) field.checked = false;
       });
+      quoteToggleTimedBooking();
       if (quoteField("quote-load-hrs")) quoteField("quote-load-hrs").value = "1";
       if (quoteField("quote-tip-hrs")) quoteField("quote-tip-hrs").value = "1";
       if (quoteField("quote-mile-input")) quoteField("quote-mile-input").value = "0";
@@ -5755,6 +5867,9 @@
         const payload = {
           ...template.bookingPayload,
           customer_email: currentUserEmail,
+          job_notes: "",
+          coll_ref: "",
+          del_ref: "",
           coll_datetime: "",
           del_datetime: "",
           customers_own_invoice_number: "",
@@ -5765,6 +5880,9 @@
         setFieldValue("n_cust_email", currentUserEmail);
         setFieldValue("n_coll_address_search", payload.coll_address_search || formatTemplateAddress(collection));
         setFieldValue("n_del_address_search", payload.del_address_search || formatTemplateAddress(delivery));
+        setFieldValue("n_job_notes", "");
+        setFieldValue("n_coll_ref", "");
+        setFieldValue("n_10", "");
         setFieldValue("n_coll_dt", "");
         setFieldValue("n_del_dt", "");
         setFieldValue("n_customers_own_invoice_number", "");
@@ -5794,6 +5912,7 @@
       setFieldValue("n_del_email", delivery.email);
       setFieldValue("n_price", template && template.totalPrice ? template.totalPrice : "");
       lockQuotedPriceField();
+      setFieldValue("n_job_notes", "");
       setFieldValue("n_coll_ref", "");
       setFieldValue("n_10", "");
       setFieldValue("n_customers_own_invoice_number", "");
@@ -5834,7 +5953,7 @@
       const isFullJobTemplate = applyTemplateToBookingForm(template);
       setStatus(
         isFullJobTemplate
-          ? "Template loaded. Only collection and delivery dates/times and the customer reference can be changed."
+          ? "Template loaded. All booking details can be changed for this job except the agreed price."
           : "Legacy template loaded. Complete the remaining job details before submitting.",
         isFullJobTemplate ? "ok" : "warn"
       );
@@ -5857,7 +5976,9 @@
     }
 
     function getPreviousBookingDateValue(row) {
-      const rawDate = row.coll_datetime || row.del_datetime || row.collection_datetime || row.delivery_datetime || row.created_at || "";
+      const rawDate = previousBookingMode === "cancelled"
+        ? (getCustomerCancelledAt(row) || row.coll_datetime || row.del_datetime || row.created_at || "")
+        : (row.coll_datetime || row.del_datetime || row.collection_datetime || row.delivery_datetime || row.created_at || "");
       const parsed = new Date(rawDate);
       return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
     }
@@ -5879,13 +6000,111 @@
       return new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
     }
 
+    function getCustomerCancelledAt(row) {
+      return row && (row.customer_cancelled_at || row.cancelled_at || row.canceled_at || "");
+    }
+
+    function isCustomerCancelledBooking(row) {
+      if (!row) return false;
+      const requestStatus = String(row.request_status || "").trim().toLowerCase();
+      const cancellationSource = String(row.cancellation_source || row.record_source || "").trim().toLowerCase();
+      return ["cancelled", "canceled", "withdrawn"].includes(requestStatus)
+        || Boolean(getCustomerCancelledAt(row))
+        || cancellationSource === "request"
+        || cancellationSource === "quote";
+    }
+
+    function hasCustomerCancellationWindow(row) {
+      const dueTime = getPreviousBookingDueDateValue(row);
+      return dueTime > 0 && dueTime - Date.now() > CUSTOMER_BOOKING_EDIT_CUTOFF_MS;
+    }
+
+    function canCancelPendingRequest(row) {
+      const requestStatus = String(row && row.request_status || "new").trim().toLowerCase();
+      return Boolean(row && row.id)
+        && requestStatus === "new"
+        && !isCustomerCancelledBooking(row)
+        && hasCustomerCancellationWindow(row);
+    }
+
+    function canCancelPreviousBooking(row) {
+      return Boolean(row && row.id)
+        && !isPreviousBookingCompleted(row)
+        && !isCustomerCancelledBooking(row)
+        && hasCustomerCancellationWindow(row);
+    }
+
+    function getBookingCancellationTitle(row, source) {
+      if (isCustomerCancelledBooking(row)) return "This job has already been cancelled";
+      if (source === "request" && String(row && row.request_status || "new").toLowerCase() !== "new") {
+        return "Only requests awaiting approval can be cancelled";
+      }
+      if (source === "quote" && isPreviousBookingCompleted(row)) return "Completed jobs cannot be cancelled";
+      return hasCustomerCancellationWindow(row)
+        ? "Cancel job"
+        : "Cancellation closes 48 hours before collection";
+    }
+
+    function getPortalCancellationError(error) {
+      const message = error && error.message ? error.message : String(error || "Unknown error");
+      if (/cancel_customer_portal_booking|schema cache|could not find the function|pgrst202/i.test(message)) {
+        return "The cancellation service is temporarily unavailable. Please contact Frost Transport.";
+      }
+      return message;
+    }
+
+    async function cancelCustomerPortalBooking(event, source, id) {
+      if (event) event.stopPropagation();
+      const cleanSource = source === "request" ? "request" : "quote";
+      const rows = cleanSource === "request" ? (window.currentLookupRows || []) : (previousBookingRows || []);
+      const row = rows.find((item) => String(item.id) === String(id));
+      const allowed = cleanSource === "request" ? canCancelPendingRequest(row) : canCancelPreviousBooking(row);
+      const setViewStatus = cleanSource === "request" ? setLookupStatus : setPreviousStatus;
+
+      if (!row) {
+        setViewStatus("Could not find that job. Refresh and try once more.", "error");
+        return;
+      }
+      if (!allowed) {
+        setViewStatus(getBookingCancellationTitle(row, cleanSource) + ".", "error");
+        return;
+      }
+      if (!confirm("Cancel this job? This cannot be undone and Frost Transport will be notified.")) return;
+
+      const button = event && event.currentTarget;
+      if (button) button.disabled = true;
+      setViewStatus("Cancelling job...", "warn");
+
+      try {
+        const { error } = await sb.rpc("cancel_customer_portal_booking", {
+          request_email: currentUserEmail,
+          booking_source: cleanSource,
+          booking_id: String(id)
+        });
+        if (error) throw error;
+
+        if (cleanSource === "request") {
+          await lookupBookingRequests();
+          setLookupStatus("Job cancelled. It is now available in Cancelled Jobs.", "ok");
+        } else {
+          await lookupPreviousBookings();
+          setPreviousStatus("Job cancelled. The planner has been notified.", "ok");
+        }
+        loadHomeSnapshot();
+      } catch (error) {
+        setViewStatus("Could not cancel job: " + getPortalCancellationError(error), "error");
+        if (button) button.disabled = false;
+      }
+    }
+
     function isHistoryBooking(row) {
+      if (isCustomerCancelledBooking(row)) return false;
       const deliveryTime = getPreviousDeliveryDateValue(row);
       return isPreviousBookingCompleted(row) && deliveryTime > 0 && deliveryTime < getTodayStartValue();
     }
 
     function isActiveBooking(row) {
-      return !isHistoryBooking(row);
+      return !isCustomerCancelledBooking(row) && !isHistoryBooking(row);
     }
 
     function canEditPreviousBooking(row) {
@@ -5931,6 +6150,7 @@
     }
 
     function getPreviousStatusLabel(row) {
+      if (isCustomerCancelledBooking(row)) return "CANCELLED";
       if (getPreviousPodUrl(row)) return "COMPLETED";
       const status = String(row.status || row.job_status || "").trim();
       if (status) return status.replace(/_/g, " ").toUpperCase();
@@ -6118,6 +6338,7 @@
         getPreviousPodUrl(row),
         row.coll_datetime,
         row.del_datetime,
+        getCustomerCancelledAt(row),
         formatDisplayDate(row.coll_datetime),
         formatDisplayDate(row.del_datetime)
       ];
@@ -6130,7 +6351,11 @@
 
       return previousBookingRows
         .filter((row) => !isDeliveryOnlyPreviousRow(row))
-        .filter((row) => previousBookingMode === "history" ? isHistoryBooking(row) : isActiveBooking(row))
+        .filter((row) => previousBookingMode === "cancelled"
+          ? isCustomerCancelledBooking(row)
+          : previousBookingMode === "history"
+            ? isHistoryBooking(row)
+            : isActiveBooking(row))
         .filter((row) => {
           if (filterValue === "completed") return isPreviousBookingCompleted(row);
           if (filterValue === "pending") return !isPreviousBookingCompleted(row);
@@ -6159,17 +6384,29 @@
     }
 
     function getPreviousFtsNumber(row) {
-      return row.fts_invoice_number || row.job_number || row.reference || row.id || "";
+      if (row.fts_invoice_number || row.job_number || row.reference) {
+        return row.fts_invoice_number || row.job_number || row.reference;
+      }
+      return String(row.cancellation_source || row.record_source || "").toLowerCase() === "request"
+        ? "FTS pending"
+        : row.id || "";
     }
 
     function getPreviousCustomerReference(row) {
       return row.customers_own_invoice_number || row.customer_ref || row.reference || row.coll_ref || "";
     }
 
+    function getPreviousBookingUiId(row) {
+      const id = String(row && row.id || "");
+      const source = String(row && (row.cancellation_source || row.record_source) || "").toLowerCase();
+      return previousBookingMode === "cancelled" && source ? `${source}:${id}` : id;
+    }
+
     function getRequestStatusLabel(status) {
       const clean = String(status || "new").toLowerCase();
       if (clean === "accepted") return "Accepted";
       if (clean === "rejected") return "Rejected";
+      if (["cancelled", "canceled", "withdrawn"].includes(clean)) return "Cancelled";
       return "Awaiting review";
     }
 
@@ -6211,6 +6448,7 @@
       const filtered = (rows || []).filter((row) => {
         const cleanStatus = String(row.request_status || "new").toLowerCase();
         if (cleanStatus === "accepted") return false;
+        if (["cancelled", "canceled", "withdrawn"].includes(cleanStatus)) return false;
         if (cleanStatus !== "rejected") return true;
 
         const id = String(row.id || "");
@@ -6235,12 +6473,16 @@
       lookupResults.innerHTML = rows.map((row) => {
         const cleanStatus = String(row.request_status || "new").toLowerCase();
         const statusClass = cleanStatus === "accepted" ? "accepted" : cleanStatus === "rejected" ? "rejected" : "";
+        const cancelAllowed = canCancelPendingRequest(row);
+        const cancelTitle = getBookingCancellationTitle(row, "request");
+        const cancelButton = `<button type="button" class="edit-result-btn cancel-booking-btn" title="${escapeHtml(cancelTitle)}" ${cancelAllowed ? `onclick="cancelCustomerPortalBooking(event, 'request', '${escapeHtml(row.id)}')"` : "disabled"}>Cancel Job</button>`;
         return `
           <div class="booking-result ${statusClass}">
             <div class="booking-result-head">
               <span class="booking-result-title">${escapeHtml(getPendingRequestTitle(row))}</span>
               <span class="result-actions">
                 <span class="status-pill ${statusClass}">${escapeHtml(getRequestStatusLabel(cleanStatus))}</span>
+                ${cancelButton}
                 <button type="button" class="edit-result-btn" onclick="editBookingRequest('${escapeHtml(row.id)}')">Edit</button>
               </span>
             </div>
@@ -6294,8 +6536,9 @@
 
       previousResults.innerHTML = rows.map((row) => {
         const completed = isPreviousBookingCompleted(row);
+        const cancelled = isCustomerCancelledBooking(row);
         const statusText = getPreviousStatusLabel(row);
-        const statusClass = completed ? "accepted" : "";
+        const statusClass = cancelled ? "cancelled" : completed ? "accepted" : "";
         const podUrl = getPreviousPodUrl(row);
         const podButton = podUrl ? `<button type="button" class="status-pill accepted previous-pill" data-pod-url="${escapeHtml(podUrl)}" onclick="openPreviousPod(this.dataset.podUrl)">View POD</button>` : "";
         const podThumbnail = renderPreviousPodThumbnail(podUrl);
@@ -6306,8 +6549,13 @@
         const templateButton = previousBookingMode === "history"
           ? `<button type="button" class="edit-result-btn previous-pill" onclick="createTemplateFromHistoryJob('${escapeHtml(row.id)}')">Template</button>`
           : "";
-        const progressButton = `<button type="button" class="edit-result-btn previous-pill" onclick="openProgressModal('${escapeHtml(row.id)}')">View Progress</button>`;
-        const messageButton = `<button type="button" class="edit-result-btn previous-pill" onclick="openMessagesForJob('${escapeHtml(row.id)}')">Message</button>`;
+        const cancelAllowed = canCancelPreviousBooking(row);
+        const cancelButton = previousBookingMode === "active"
+          ? `<button type="button" class="edit-result-btn previous-pill cancel-booking-btn" title="${escapeHtml(getBookingCancellationTitle(row, "quote"))}" ${cancelAllowed ? `onclick="cancelCustomerPortalBooking(event, 'quote', '${escapeHtml(row.id)}')"` : "disabled"}>Cancel Job</button>`
+          : "";
+        const progressButton = previousBookingMode === "cancelled" ? "" : `<button type="button" class="edit-result-btn previous-pill" onclick="openProgressModal('${escapeHtml(row.id)}')">View Progress</button>`;
+        const messageButton = previousBookingMode === "cancelled" ? "" : `<button type="button" class="edit-result-btn previous-pill" onclick="openMessagesForJob('${escapeHtml(row.id)}')">Message</button>`;
+        const cancellationDate = getCustomerCancelledAt(row);
         const price = String(row.total_price || "").toUpperCase() === "PFJ" ? "PFJ" : (row.total_price ? "&pound;" + escapeHtml(row.total_price) : "-");
         const ftsNumber = getPreviousFtsNumber(row) || "FTS pending";
         return `
@@ -6317,6 +6565,7 @@
               <span class="result-actions">
                 <span class="status-pill ${statusClass} previous-pill">${escapeHtml(statusText)}</span>
                 ${podButton}
+                ${cancelButton}
                 ${editButton}
                 ${templateButton}
                 ${progressButton}
@@ -6333,6 +6582,7 @@
               <div><b>Customer ref:</b> ${escapeHtml(row.customers_own_invoice_number || "-")}</div>
               <div><b>Collection ref:</b> ${escapeHtml(row.coll_ref || "-")}</div>
               <div><b>Delivery ref:</b> ${escapeHtml(row.del_ref || "-")}</div>
+              ${cancelled ? `<div><b>Cancelled:</b> ${formatDisplayDate(cancellationDate)}</div>` : ""}
             </div>
             ${podThumbnail}
           </div>`;
@@ -6357,11 +6607,12 @@
             <div class="booking-slim-cell" aria-label="Actions"></div>
           </div>
           ${rows.map((row) => {
-            const rowId = String(row.id || "");
+            const rowId = getPreviousBookingUiId(row);
             const isExpanded = rowId && String(expandedSlimBookingId) === rowId;
             const completed = isPreviousBookingCompleted(row);
+            const cancelled = isCustomerCancelledBooking(row);
             const statusText = getPreviousStatusLabel(row);
-            const statusClass = completed ? "accepted" : "";
+            const statusClass = cancelled ? "cancelled" : completed ? "accepted" : "";
             const podUrl = getPreviousPodUrl(row);
             const podThumbnail = renderPreviousPodThumbnail(podUrl);
             const price = String(row.total_price || "").toUpperCase() === "PFJ" ? "PFJ" : (row.total_price ? "&pound;" + escapeHtml(row.total_price) : "-");
@@ -6373,6 +6624,16 @@
             const editButton = previousBookingMode === "active"
               ? `<button type="button" class="booking-slim-eye-btn booking-slim-edit-btn" aria-label="Edit booking" title="${escapeHtml(getPreviousBookingEditTitle(row))}" ${editAllowed ? `onclick="event.stopPropagation(); editPreviousBooking('${escapeHtml(rowId)}')"` : "disabled"}>Edit</button>`
               : "";
+            const cancelAllowed = canCancelPreviousBooking(row);
+            const cancelButton = previousBookingMode === "active"
+              ? `<button type="button" class="booking-slim-eye-btn cancel-booking-btn" aria-label="Cancel job" title="${escapeHtml(getBookingCancellationTitle(row, "quote"))}" ${cancelAllowed ? `onclick="event.stopPropagation(); cancelCustomerPortalBooking(event, 'quote', '${escapeHtml(rowId)}')"` : "disabled"}>Cancel Job</button>`
+              : "";
+            const messageButton = previousBookingMode === "cancelled"
+              ? ""
+              : `<button type="button" class="booking-slim-eye-btn" aria-label="Message about job" title="Message about job" onclick="event.stopPropagation(); openMessagesForJob('${escapeHtml(rowId)}')">Msg</button>`;
+            const eyeButton = previousBookingMode === "cancelled"
+              ? `<button type="button" class="booking-slim-eye-btn" aria-label="View cancelled job" title="View cancelled job" onclick="event.stopPropagation(); toggleSlimBookingDetails('${escapeHtml(rowId)}')">&#128065;</button>`
+              : `<button type="button" class="booking-slim-eye-btn" aria-label="View progress" title="View progress" onclick="event.stopPropagation(); openProgressModal('${escapeHtml(rowId)}')">&#128065;</button>`;
             const detail = isExpanded ? `
               <div class="booking-slim-detail">
                 <div class="booking-slim-detail-head">
@@ -6389,12 +6650,13 @@
                   <div><b>Customer ref:</b> ${escapeHtml(row.customers_own_invoice_number || "-")}</div>
                   <div><b>Collection ref:</b> ${escapeHtml(row.coll_ref || "-")}</div>
                   <div><b>Delivery ref:</b> ${escapeHtml(row.del_ref || "-")}</div>
+                  ${cancelled ? `<div><b>Cancelled:</b> ${formatDisplayDate(getCustomerCancelledAt(row))}</div>` : ""}
                 </div>
                 ${podThumbnail}
               </div>` : "";
 
             return `
-            <div class="booking-slim-row clickable ${isExpanded ? "expanded" : ""}" role="button" tabindex="0" aria-expanded="${isExpanded ? "true" : "false"}" onclick="toggleSlimBookingDetails('${escapeHtml(rowId)}')" onkeydown="handleSlimBookingRowKey(event, '${escapeHtml(rowId)}')">
+            <div class="booking-slim-row clickable ${cancelled ? "cancelled" : ""} ${isExpanded ? "expanded" : ""}" role="button" tabindex="0" aria-expanded="${isExpanded ? "true" : "false"}" onclick="toggleSlimBookingDetails('${escapeHtml(rowId)}')" onkeydown="handleSlimBookingRowKey(event, '${escapeHtml(rowId)}')">
               <div class="booking-slim-cell" title="${escapeHtml(row.coll_postcode || "-")}">${escapeHtml(row.coll_postcode || "-")}</div>
               <div class="booking-slim-cell" title="${escapeHtml(row.del_postcode || "-")}">${escapeHtml(row.del_postcode || "-")}</div>
               <div class="booking-slim-cell" title="${escapeHtml(getPreviousCustomerReference(row) || "-")}">${escapeHtml(getPreviousCustomerReference(row) || "-")}</div>
@@ -6403,9 +6665,10 @@
               <div class="booking-slim-cell" title="${formatDisplayDate(row.del_datetime || row.delivery_datetime)}">${formatDisplayDate(row.del_datetime || row.delivery_datetime)}</div>
               <div class="booking-slim-action-cell">
                 ${templateButton}
-                <button type="button" class="booking-slim-eye-btn" aria-label="View progress" title="View progress" onclick="event.stopPropagation(); openProgressModal('${escapeHtml(rowId)}')">&#128065;</button>
+                ${cancelButton}
+                ${eyeButton}
                 ${editButton}
-                <button type="button" class="booking-slim-eye-btn" aria-label="Message about job" title="Message about job" onclick="event.stopPropagation(); openMessagesForJob('${escapeHtml(rowId)}')">Msg</button>
+                ${messageButton}
               </div>
             </div>
             ${detail}`;
@@ -6418,12 +6681,20 @@
       updatePreviousViewToggleButton();
       const sectionRows = previousBookingRows
         .filter((row) => !isDeliveryOnlyPreviousRow(row))
-        .filter((row) => previousBookingMode === "history" ? isHistoryBooking(row) : isActiveBooking(row));
+        .filter((row) => previousBookingMode === "cancelled"
+          ? isCustomerCancelledBooking(row)
+          : previousBookingMode === "history"
+            ? isHistoryBooking(row)
+            : isActiveBooking(row));
       const availableCount = sectionRows.length;
       const rows = getVisiblePreviousRows();
       const activeFilter = previousFilter ? previousFilter.value : "all";
       const activeSearch = previousSearchTerm.trim();
-      const sectionLabel = previousBookingMode === "history" ? "history booking" : "active booking";
+      const sectionLabel = previousBookingMode === "history"
+        ? "history booking"
+        : previousBookingMode === "cancelled"
+          ? "cancelled job"
+          : "active booking";
 
       const emptyMessage = availableCount ? `No ${sectionLabel}s match those options.` : `No ${sectionLabel}s found.`;
       if (previousDisplayMode === "slim") renderPreviousBookingSlimResults(rows, emptyMessage);
@@ -6503,7 +6774,11 @@
     async function lookupPreviousBookings() {
       const email = currentUserEmail.toLowerCase();
       previousResults.innerHTML = "";
-      const sectionName = previousBookingMode === "history" ? "history" : "active bookings";
+      const sectionName = previousBookingMode === "history"
+        ? "history"
+        : previousBookingMode === "cancelled"
+          ? "cancelled jobs"
+          : "active bookings";
 
       if (!email) {
         setPreviousStatus(`Sign in to view ${sectionName}.`, "error");
@@ -6515,9 +6790,28 @@
       setPreviousStatus(`Checking ${sectionName}...`, "warn");
 
       try {
-        const { data, error } = await sb.rpc("lookup_previous_bookings", { request_email: email });
+        const rpcName = previousBookingMode === "cancelled"
+          ? "lookup_cancelled_customer_bookings"
+          : "lookup_previous_bookings";
+        const { data, error } = await sb.rpc(rpcName, { request_email: email });
         if (error) throw error;
-        previousBookingRows = await addPodUrlsToPreviousRows(data || []);
+
+        if (previousBookingMode === "cancelled") {
+          previousBookingRows = data || [];
+        } else {
+          let visibleRows = data || [];
+          const cancelledResult = await sb.rpc("lookup_cancelled_customer_bookings", { request_email: email });
+          if (!cancelledResult.error) {
+            const cancelledQuoteIds = new Set((cancelledResult.data || [])
+              .filter((row) => String(row.cancellation_source || row.record_source || "").toLowerCase() === "quote")
+              .map((row) => String(row.id || ""))
+              .filter(Boolean));
+            visibleRows = visibleRows.filter((row) => !cancelledQuoteIds.has(String(row.id || "")));
+          } else {
+            console.warn("Could not filter cancelled jobs from active bookings:", cancelledResult.error);
+          }
+          previousBookingRows = await addPodUrlsToPreviousRows(visibleRows);
+        }
         refreshPreviousBookingDisplay();
         if (!messagesView.classList.contains("hidden")) renderPortalMessageJobOptions();
       } catch (error) {
