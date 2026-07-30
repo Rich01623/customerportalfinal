@@ -915,6 +915,10 @@
       margin: 0;
     }
 
+    .quote-time-window.single-time .form-group {
+      max-width: 220px;
+    }
+
     .quote-switch {
       position: relative;
       display: inline-block;
@@ -1337,16 +1341,16 @@
     .status.warn { color: var(--warn); }
 
     header .status {
-      color: #fff;
+      color: #111;
     }
 
     .sign-out-btn {
-      border: 1px solid rgba(255,255,255,0.45);
+      border: 1px solid rgba(17,24,39,0.24);
       border-radius: 6px;
       min-height: 34px;
       padding: 0 12px;
-      color: #fff;
-      background: rgba(255,255,255,0.12);
+      color: #111;
+      background: #fff;
       font-family: "Segoe UI", "Inter", Arial, sans-serif;
       font-size: 0.9rem;
       font-weight: 500;
@@ -2359,22 +2363,37 @@
                   <span class="quote-switch"><input type="checkbox" id="quote-advanced-booking"><span class="quote-slider"></span></span>
                 </label>
 
-                <label class="quote-toggle" for="quote-timed-booking">
+                <label class="quote-toggle" for="quote-booking-window">
                   <span class="quote-toggle-text">
-                    <span>Timed Booking</span>
+                    <span>Booking Window</span>
                     <p>Add a required arrival window</p>
                   </span>
-                  <span class="quote-switch"><input type="checkbox" id="quote-timed-booking" onchange="quoteToggleTimedBooking();"><span class="quote-slider"></span></span>
+                  <span class="quote-switch"><input type="checkbox" id="quote-booking-window" onchange="quoteToggleBookingWindow();"><span class="quote-slider"></span></span>
                 </label>
 
-                <div id="quote-timed-booking-window" class="quote-row quote-time-window hidden" aria-hidden="true">
+                <div id="quote-booking-window-fields" class="quote-row quote-time-window hidden" aria-hidden="true">
                   <div class="form-group">
-                    <label for="quote-timed-booking-from">Between</label>
-                    <input type="time" id="quote-timed-booking-from">
+                    <label for="quote-booking-window-from">Between</label>
+                    <input type="time" id="quote-booking-window-from">
                   </div>
                   <div class="form-group">
-                    <label for="quote-timed-booking-to">And</label>
-                    <input type="time" id="quote-timed-booking-to">
+                    <label for="quote-booking-window-to">And</label>
+                    <input type="time" id="quote-booking-window-to">
+                  </div>
+                </div>
+
+                <label class="quote-toggle" for="quote-tb-timed-booking">
+                  <span class="quote-toggle-text">
+                    <span>TB Timed Booking</span>
+                    <p>Set a precise delivery time</p>
+                  </span>
+                  <span class="quote-switch"><input type="checkbox" id="quote-tb-timed-booking" onchange="quoteToggleTbTimedBooking();"><span class="quote-slider"></span></span>
+                </label>
+
+                <div id="quote-tb-timed-booking-field" class="quote-time-window single-time hidden" aria-hidden="true">
+                  <div class="form-group">
+                    <label for="quote-tb-timed-booking-time">Delivery time</label>
+                    <input type="time" id="quote-tb-timed-booking-time">
                   </div>
                 </div>
 
@@ -2707,6 +2726,7 @@
     let homeSnapshotRequestId = 0;
     let currentTemplates = [];
     let editingTemplateId = "";
+    let templateLoadRequestId = 0;
     const creatingHistoryTemplateIds = new Set();
     let portalMessagesRaw = [];
     let selectedPortalMessageJobId = "";
@@ -3241,8 +3261,20 @@
       else backToHome();
     }
 
+    function clearTemplateAccountState() {
+      templateLoadRequestId += 1;
+      currentTemplates = [];
+      editingTemplateId = "";
+      creatingHistoryTemplateIds.clear();
+      if (templateForm) templateForm.reset();
+      if (templateList) templateList.innerHTML = "";
+      if (templateSaveButton) templateSaveButton.textContent = "Save changes";
+      setTemplateStatus("", "");
+    }
+
     function setSignedOutView() {
       portalAccessCheckToken += 1;
+      clearTemplateAccountState();
       currentUserId = "";
       currentUserEmail = "";
       currentUserName = "";
@@ -3352,6 +3384,7 @@
         return;
       }
 
+      clearTemplateAccountState();
       currentUserId = String(effectiveSession && effectiveSession.user && effectiveSession.user.id || "").trim();
       currentUserEmail = String(effectiveSession && effectiveSession.user && effectiveSession.user.email || "").trim().toLowerCase();
       currentUserName = getClientDisplayName(effectiveSession && effectiveSession.user);
@@ -4903,51 +4936,103 @@
       return surcharges;
     }
 
-    function quoteToggleTimedBooking() {
-      const toggle = quoteField("quote-timed-booking");
-      const windowFields = quoteField("quote-timed-booking-window");
+    function quoteToggleBookingWindow() {
+      const toggle = quoteField("quote-booking-window");
+      const windowFields = quoteField("quote-booking-window-fields");
       const enabled = !!(toggle && toggle.checked);
+      const preciseToggle = quoteField("quote-tb-timed-booking");
+      if (enabled && preciseToggle && preciseToggle.checked) {
+        preciseToggle.checked = false;
+        quoteToggleTbTimedBooking();
+      }
       if (windowFields) {
         windowFields.classList.toggle("hidden", !enabled);
         windowFields.setAttribute("aria-hidden", enabled ? "false" : "true");
       }
       if (!enabled) {
-        const fromField = quoteField("quote-timed-booking-from");
-        const toField = quoteField("quote-timed-booking-to");
+        const fromField = quoteField("quote-booking-window-from");
+        const toField = quoteField("quote-booking-window-to");
         if (fromField) fromField.value = "";
         if (toField) toField.value = "";
+      }
+    }
+
+    function quoteToggleTbTimedBooking() {
+      const toggle = quoteField("quote-tb-timed-booking");
+      const timeFields = quoteField("quote-tb-timed-booking-field");
+      const enabled = !!(toggle && toggle.checked);
+      const windowToggle = quoteField("quote-booking-window");
+      if (enabled && windowToggle && windowToggle.checked) {
+        windowToggle.checked = false;
+        quoteToggleBookingWindow();
+      }
+      if (timeFields) {
+        timeFields.classList.toggle("hidden", !enabled);
+        timeFields.setAttribute("aria-hidden", enabled ? "false" : "true");
+      }
+      if (!enabled) {
+        const timeField = quoteField("quote-tb-timed-booking-time");
+        if (timeField) timeField.value = "";
       }
     }
 
     function getQuoteBookingInstructions() {
       const instructions = [];
       const advancedBooking = quoteField("quote-advanced-booking");
-      const timedBooking = quoteField("quote-timed-booking");
-      const fromTime = String(quoteField("quote-timed-booking-from") && quoteField("quote-timed-booking-from").value || "").trim();
-      const toTime = String(quoteField("quote-timed-booking-to") && quoteField("quote-timed-booking-to").value || "").trim();
+      const bookingWindow = quoteField("quote-booking-window");
+      const tbTimedBooking = quoteField("quote-tb-timed-booking");
+      const fromTime = String(quoteField("quote-booking-window-from") && quoteField("quote-booking-window-from").value || "").trim();
+      const toTime = String(quoteField("quote-booking-window-to") && quoteField("quote-booking-window-to").value || "").trim();
+      const preciseTime = String(quoteField("quote-tb-timed-booking-time") && quoteField("quote-tb-timed-booking-time").value || "").trim();
 
       if (advancedBooking && advancedBooking.checked) {
         instructions.push("LOAD REQUIRES ADVANCED BOOKING");
       }
-      if (timedBooking && timedBooking.checked && fromTime && toTime) {
-        instructions.push(`TIMED BOOKING: BETWEEN ${fromTime} AND ${toTime}`);
+      if (bookingWindow && bookingWindow.checked && fromTime && toTime) {
+        instructions.push(`BOOKING WINDOW: BETWEEN ${fromTime} AND ${toTime}`);
+      }
+      if (tbTimedBooking && tbTimedBooking.checked && preciseTime) {
+        instructions.push(`TB TIMED BOOKING: ${preciseTime}`);
       }
       return instructions;
     }
 
     function validateQuoteBookingInstructions() {
-      const timedBooking = quoteField("quote-timed-booking");
-      if (!timedBooking || !timedBooking.checked) return true;
+      const bookingWindow = quoteField("quote-booking-window");
+      if (bookingWindow && bookingWindow.checked) {
+        const fromField = quoteField("quote-booking-window-from");
+        const toField = quoteField("quote-booking-window-to");
+        if (!fromField || !toField || !fromField.value || !toField.value) {
+          setQuoteStatus("Please enter both times for the booking window.", "error");
+          if (fromField && !fromField.value) fromField.focus();
+          else if (toField) toField.focus();
+          return false;
+        }
+      }
 
-      const fromField = quoteField("quote-timed-booking-from");
-      const toField = quoteField("quote-timed-booking-to");
-      if (!fromField || !toField || !fromField.value || !toField.value) {
-        setQuoteStatus("Please enter both times for the timed booking window.", "error");
-        if (fromField && !fromField.value) fromField.focus();
-        else if (toField) toField.focus();
+      const tbTimedBooking = quoteField("quote-tb-timed-booking");
+      const preciseField = quoteField("quote-tb-timed-booking-time");
+      if (tbTimedBooking && tbTimedBooking.checked && (!preciseField || !preciseField.value)) {
+        setQuoteStatus("Please enter the precise delivery time for the TB timed booking.", "error");
+        if (preciseField) preciseField.focus();
         return false;
       }
+
       return true;
+    }
+
+    function getQuoteDeliveryTimeForBooking() {
+      const tbTimedBooking = quoteField("quote-tb-timed-booking");
+      const preciseTime = String(quoteField("quote-tb-timed-booking-time") && quoteField("quote-tb-timed-booking-time").value || "").trim();
+      if (tbTimedBooking && tbTimedBooking.checked && preciseTime) return preciseTime;
+
+      const bookingWindow = quoteField("quote-booking-window");
+      const windowStart = String(quoteField("quote-booking-window-from") && quoteField("quote-booking-window-from").value || "").trim();
+      if (bookingWindow && bookingWindow.checked && windowStart) return windowStart;
+
+      const pre10 = quoteField("quote-pre10");
+      if (pre10 && pre10.checked) return "10:00";
+      return "09:00";
     }
 
     function applyQuoteAddressToBooking(kind, address, place) {
@@ -5003,14 +5088,14 @@
       applyQuoteAddressToBooking("collection", collectionAddress, quoteSelectedPlaces.pickup);
       applyQuoteAddressToBooking("delivery", deliveryAddress, quoteSelectedPlaces.delivery);
       setFieldValue("n_coll_dt", quoteDateToBookingDateTime(collectionDate, "09:00"));
-      setFieldValue("n_del_dt", quoteDateToBookingDateTime(deliveryDate, "09:00"));
+      setFieldValue("n_del_dt", quoteDateToBookingDateTime(deliveryDate, getQuoteDeliveryTimeForBooking()));
       const total = getQuoteTotalValue();
       if (total) {
         setFieldValue("n_price", total.toFixed(2));
         lockQuotedPriceField();
       }
       setFieldValue("n_job_notes", buildQuoteBookingNotes());
-      setStatus("Quote details have been copied into the booking form. Please check the collection and delivery times before submitting.", "ok");
+      setStatus("Quote details and delivery timing have been copied into the booking form. Please check them before submitting.", "ok");
       const collectionField = document.getElementById("n_coll_address_search");
       if (collectionField) collectionField.focus();
     }
@@ -5137,11 +5222,12 @@
       });
       const stops = quoteField("quote-stops");
       if (stops) stops.innerHTML = "";
-      ["quote-tail-lift", "quote-pre10", "quote-parking", "quote-advanced-booking", "quote-timed-booking"].forEach((id) => {
+      ["quote-tail-lift", "quote-pre10", "quote-parking", "quote-advanced-booking", "quote-booking-window", "quote-tb-timed-booking"].forEach((id) => {
         const field = quoteField(id);
         if (field) field.checked = false;
       });
-      quoteToggleTimedBooking();
+      quoteToggleBookingWindow();
+      quoteToggleTbTimedBooking();
       if (quoteField("quote-load-hrs")) quoteField("quote-load-hrs").value = "1";
       if (quoteField("quote-tip-hrs")) quoteField("quote-tip-hrs").value = "1";
       if (quoteField("quote-mile-input")) quoteField("quote-mile-input").value = "0";
@@ -5371,6 +5457,7 @@
       return {
         id: row.id,
         name: row.template_name || "Untitled template",
+        ownerUserId: String(row.user_id || "").trim(),
         ownerEmail: row.account_email || currentUserEmail,
         createdAt: row.created_at,
         collection: {
@@ -5397,6 +5484,14 @@
         bookingPayload,
         isFullJobTemplate: hasFullTemplatePayload(bookingPayload)
       };
+    }
+
+    function templateBelongsToCurrentUser(template) {
+      return Boolean(
+        template
+        && currentUserId
+        && String(template.ownerUserId || "").trim() === String(currentUserId).trim()
+      );
     }
 
     function buildTemplateInsertPayload(name, collection, delivery, totalPrice = "", bookingPayload = null) {
@@ -5431,14 +5526,20 @@
       return payload;
     }
 
-    async function fetchTemplates() {
+    async function fetchTemplates(expectedUserId = currentUserId) {
+      const ownerUserId = String(expectedUserId || "").trim();
+      if (!ownerUserId) {
+        throw new Error("Your customer login session could not be identified. Please sign in again.");
+      }
       const { data, error } = await sb
         .from(CLIENT_BOOKING_TEMPLATES_TABLE)
         .select("*")
+        .eq("user_id", ownerUserId)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      currentTemplates = (data || []).map(templateRowToViewModel);
-      return currentTemplates;
+      return (data || [])
+        .map(templateRowToViewModel)
+        .filter((template) => String(template.ownerUserId || "").trim() === ownerUserId);
     }
 
     async function saveTemplate(event) {
@@ -5448,6 +5549,13 @@
       const delivery = readTemplateAddress("t_del");
       const templateId = editingTemplateId;
       const existingTemplate = currentTemplates.find((item) => String(item.id) === String(templateId));
+
+      if (templateId && !templateBelongsToCurrentUser(existingTemplate)) {
+        editingTemplateId = "";
+        setTemplateStatus("That template is not available to this customer account.", "error");
+        await renderTemplates();
+        return;
+      }
 
       if (!name) {
         setTemplateStatus("Please enter a template name.", "error");
@@ -5495,7 +5603,7 @@
           bookingPayload
         );
         const result = templateId
-          ? await sb.from(CLIENT_BOOKING_TEMPLATES_TABLE).update(savePayload).eq("id", templateId).eq("account_email", currentUserEmail)
+          ? await sb.from(CLIENT_BOOKING_TEMPLATES_TABLE).update(savePayload).eq("id", templateId).eq("user_id", currentUserId)
           : await sb.from(CLIENT_BOOKING_TEMPLATES_TABLE).insert([savePayload]);
         const { error } = result;
         if (error) throw error;
@@ -5689,7 +5797,7 @@
 
     function editTemplateAddresses(id) {
       const template = currentTemplates.find((item) => String(item.id) === String(id));
-      if (!template) {
+      if (!templateBelongsToCurrentUser(template)) {
         setTemplateStatus("Could not find that template. Refresh and try once more.", "error");
         return;
       }
@@ -5747,7 +5855,17 @@
 
     async function renderTemplates() {
       if (!templateList) return;
+      const requestId = ++templateLoadRequestId;
+      const ownerUserId = String(currentUserId || "").trim();
       templateList.innerHTML = "";
+
+      if (!ownerUserId) {
+        const signedOut = document.createElement("div");
+        signedOut.className = "template-empty";
+        signedOut.textContent = "Sign in to view templates.";
+        templateList.appendChild(signedOut);
+        return;
+      }
 
       const loading = document.createElement("div");
       loading.className = "template-empty";
@@ -5756,8 +5874,9 @@
 
       let templates = [];
       try {
-        templates = await fetchTemplates();
+        templates = await fetchTemplates(ownerUserId);
       } catch (error) {
+        if (requestId !== templateLoadRequestId || ownerUserId !== currentUserId) return;
         const message = error && error.message ? error.message : String(error);
         templateList.innerHTML = "";
         const failed = document.createElement("div");
@@ -5767,6 +5886,9 @@
         setTemplateStatus("Could not load templates: " + message, "error");
         return;
       }
+
+      if (requestId !== templateLoadRequestId || ownerUserId !== currentUserId) return;
+      currentTemplates = templates;
 
       templateList.innerHTML = "";
 
@@ -5835,7 +5957,7 @@
 
     async function deleteTemplate(id) {
       const template = currentTemplates.find((item) => String(item.id) === String(id));
-      if (!template) {
+      if (!templateBelongsToCurrentUser(template)) {
         setTemplateStatus("Could not find that template.", "error");
         renderTemplates();
         return;
@@ -5848,7 +5970,8 @@
         const { error } = await sb
           .from(CLIENT_BOOKING_TEMPLATES_TABLE)
           .delete()
-          .eq("id", id);
+          .eq("id", id)
+          .eq("user_id", currentUserId);
         if (error) throw error;
         currentTemplates = currentTemplates.filter((item) => String(item.id) !== String(id));
         renderTemplates();
@@ -5926,15 +6049,18 @@
 
     async function loadTemplateIntoBooking(id) {
       let template = currentTemplates.find((item) => String(item.id) === String(id));
+      if (template && !templateBelongsToCurrentUser(template)) template = null;
       if (!template) {
         try {
           const { data, error } = await sb
             .from(CLIENT_BOOKING_TEMPLATES_TABLE)
             .select("*")
             .eq("id", id)
+            .eq("user_id", currentUserId)
             .single();
           if (error) throw error;
           template = templateRowToViewModel(data);
+          if (!templateBelongsToCurrentUser(template)) throw new Error("That template does not belong to this customer account.");
         } catch (error) {
           const message = error && error.message ? error.message : String(error);
           setTemplateStatus("Could not load template: " + message, "error");
