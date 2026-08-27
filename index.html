@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>FROST Transport Booking Requests</title>
   <script src="office-suite-app.js" data-app="customer"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase.min.js"></script>
   <style>
     :root {
       --frost-red: #c1272d;
@@ -786,6 +786,21 @@
       grid-template-columns: minmax(0, 1fr) 300px;
       gap: 18px;
       align-items: start;
+    }
+
+    .fuel-surcharge-quote-toolbar {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: #f8fafc;
+    }
+
+    .fuel-surcharge-quote-frame {
+      display: block;
+      width: 100%;
+      height: calc(100vh - 190px);
+      min-height: 720px;
+      border: 0;
+      background: #fff;
     }
 
     .quote-main {
@@ -1795,6 +1810,10 @@
       .quote-summary {
         position: static;
       }
+      .fuel-surcharge-quote-frame {
+        height: calc(100vh - 245px);
+        min-height: 680px;
+      }
       .lookup-row {
         grid-template-columns: 1fr;
       }
@@ -2264,10 +2283,11 @@
     </section>
 
     <section id="quote-view" class="panel hidden">
-      <div class="form-head">
-        <h1>Generate Quote</h1>
-      </div>
-      <div class="lookup-body">
+      <div id="standard-quote-tool">
+        <div class="form-head">
+          <h1>Generate Quote</h1>
+        </div>
+        <div class="lookup-body">
         <div class="form-actions" style="margin-bottom:14px;">
           <button type="button" class="action-btn secondary" onclick="backToHome()">Back</button>
           <button type="button" class="action-btn primary" onclick="quoteResetCalculator()">Reset quote</button>
@@ -2280,7 +2300,7 @@
               <section class="quote-card">
                 <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:14px;">
                   <h2 style="margin-bottom:0;">01. Routing</h2>
-                  <button type="button" class="action-btn secondary" id="quote-add-stop-btn" onclick="quoteAddStop()" disabled title="Extra stops are temporarily disabled">Add Stop</button>
+                  <button type="button" class="action-btn secondary" id="quote-add-stop-btn" onclick="quoteAddStop()" title="Add a second delivery point">Add Stop</button>
                 </div>
 
                 <div class="quote-row">
@@ -2416,7 +2436,20 @@
               </div>
             </div>
           </aside>
+          </div>
         </div>
+      </div>
+      <div id="fuel-surcharge-quote-tool" class="hidden">
+        <div class="form-head">
+          <h1>Fuel Surcharge Quote</h1>
+        </div>
+        <div class="fuel-surcharge-quote-toolbar">
+          <div class="form-actions">
+            <button type="button" class="action-btn secondary" onclick="backToHome()">Back</button>
+            <button type="button" class="action-btn primary" onclick="openFuelSurchargeQuoteToolWindow()">Open in new window</button>
+          </div>
+        </div>
+        <iframe id="fuel-surcharge-quote-frame" class="fuel-surcharge-quote-frame" title="Fuel Surcharge Quote Tool"></iframe>
       </div>
     </section>
 
@@ -2634,6 +2667,9 @@
     const requestsView = document.getElementById("requests-view");
     const previousView = document.getElementById("previous-view");
     const quoteView = document.getElementById("quote-view");
+    const standardQuoteTool = document.getElementById("standard-quote-tool");
+    const fuelSurchargeQuoteTool = document.getElementById("fuel-surcharge-quote-tool");
+    const fuelSurchargeQuoteFrame = document.getElementById("fuel-surcharge-quote-frame");
     const templatesView = document.getElementById("templates-view");
     const messagesView = document.getElementById("messages-view");
     const settingsView = document.getElementById("settings-view");
@@ -2743,7 +2779,8 @@
     const QUOTE_DEFAULT_MINIMUM = 280;
     const QUOTE_DEFAULT_MARKUP_PERCENT = 20;
     const QUOTE_FUEL_PRICE = 1.40;
-    const QUOTE_EXTRA_STOPS_ENABLED = false;
+    const QUOTE_MAX_EXTRA_STOPS = 1;
+    const FUEL_SURCHARGE_QUOTE_TOOL_URL = "https://rich01623.github.io/Fuelsurcharge/";
     const HOME_ESTIMATED_REVENUE_PER_MILE = 2.35;
     const HOME_ESTIMATED_AVERAGE_ROAD_SPEED = 48;
     const CONTACT_STAFF_NAMES = [
@@ -3212,10 +3249,10 @@
           .map((row) => String(row.id || ""))
           .filter(Boolean) : []);
         const requestRows = (requestsResult.data || []).filter((row) => !isCustomerCancelledBooking(row));
-        const bookingRows = (previousResult.data || [])
-          .filter((row) => !isDeliveryOnlyPreviousRow(row))
+        const bookingRows = mergePreviousBookingRowsByFts((previousResult.data || [])
           .filter((row) => !isCustomerCancelledBooking(row))
-          .filter((row) => !cancelledQuoteIds.has(String(row.id || "")));
+          .filter((row) => !cancelledQuoteIds.has(String(row.id || ""))))
+          .filter((row) => !isDeliveryOnlyPreviousRow(row));
         const weeklyRequestCount = requestRows.filter((row) =>
           isDateThisWeek(row.submitted_at || row.created_at, weekWindow)
         ).length;
@@ -3412,7 +3449,8 @@
       startHomeClock();
       clientAccountProfileEmail = currentUserEmail;
       clientAccountProfile = authorisedProfile;
-      loadCurrentClientAccountProfileForQuote();
+      await loadCurrentClientAccountProfileForQuote();
+      if (portalAccessCheckToken !== checkToken) return;
       startPortalMessagePolling();
       startPortalPresenceHeartbeat();
       restoreRememberedView();
@@ -3585,7 +3623,7 @@
       try {
         const { data, error } = await sb.rpc("lookup_previous_bookings", { request_email: currentUserEmail });
         if (error) throw error;
-        previousBookingRows = await addPodUrlsToPreviousRows(data || []);
+        previousBookingRows = mergePreviousBookingRowsByFts(await addPodUrlsToPreviousRows(data || []));
       } catch (error) {
         console.warn("Could not load bookings for message job linking:", error);
       }
@@ -4118,11 +4156,31 @@
       contactView.classList.toggle("hidden", view !== "contact");
       termsView.classList.toggle("hidden", view !== "terms");
       if (view === "quote") {
-        setTimeout(initQuoteCalculatorMap, 80);
+        const useFuelSurchargeTool = showSelectedQuoteTool();
+        if (!useFuelSurchargeTool) setTimeout(initQuoteCalculatorMap, 80);
         loadCurrentClientAccountProfileForQuote();
       } else if (view === "contact") {
         loadContactStaffProfiles();
       }
+    }
+
+    function isFuelSurchargeQuoteToolEnabled() {
+      return !!(clientAccountProfile && clientAccountProfile.use_fuel_surcharge_quote_tool === true);
+    }
+
+    function showSelectedQuoteTool() {
+      const useFuelSurchargeTool = isFuelSurchargeQuoteToolEnabled();
+      standardQuoteTool.classList.toggle("hidden", useFuelSurchargeTool);
+      fuelSurchargeQuoteTool.classList.toggle("hidden", !useFuelSurchargeTool);
+      if (useFuelSurchargeTool && fuelSurchargeQuoteFrame.dataset.loaded !== "true") {
+        fuelSurchargeQuoteFrame.src = FUEL_SURCHARGE_QUOTE_TOOL_URL;
+        fuelSurchargeQuoteFrame.dataset.loaded = "true";
+      }
+      return useFuelSurchargeTool;
+    }
+
+    function openFuelSurchargeQuoteToolWindow() {
+      window.open(FUEL_SURCHARGE_QUOTE_TOOL_URL, "_blank", "noopener,noreferrer");
     }
 
     function setSettingsStatus(message, type) {
@@ -4566,21 +4624,33 @@
       return data || [];
     }
 
-    async function fetchClientPortalAccountMarkupByEmail(email) {
+    async function fetchClientPortalQuoteSettingsByEmail(email) {
       const cleanEmail = String(email || "").trim().toLowerCase();
       if (!cleanEmail) return null;
 
       const emailColumns = ["accounts_email", "email", "account_email"];
       for (const emailColumn of emailColumns) {
-        const { data, error } = await sb
+        let { data, error } = await sb
           .from("customer_portal_accounts")
-          .select(`${emailColumn}, quote_markup_percent`)
+          .select(`${emailColumn}, quote_markup_percent, use_fuel_surcharge_quote_tool`)
           .ilike(emailColumn, cleanEmail)
           .limit(1);
 
+        if (error && isMissingCustomerProfileColumnError(error, "use_fuel_surcharge_quote_tool")) {
+          ({ data, error } = await sb
+            .from("customer_portal_accounts")
+            .select(`${emailColumn}, quote_markup_percent`)
+            .ilike(emailColumn, cleanEmail)
+            .limit(1));
+        }
+
         if (!error) {
-          const value = Number(data && data[0] && data[0].quote_markup_percent);
-          return Number.isFinite(value) ? value : null;
+          const row = data && data[0] || null;
+          const value = Number(row && row.quote_markup_percent);
+          return {
+            quote_markup_percent: Number.isFinite(value) ? value : null,
+            use_fuel_surcharge_quote_tool: row && row.use_fuel_surcharge_quote_tool === true
+          };
         }
 
         if (isMissingCustomerProfileColumnError(error, emailColumn)) continue;
@@ -4606,9 +4676,14 @@
         String(profile.accounts_email || "").trim().toLowerCase() === cleanEmail
       ) || (data || [])[0] || null;
 
-      const portalMarkup = await fetchClientPortalAccountMarkupByEmail(cleanEmail);
-      if (clientAccountProfile && portalMarkup !== null) {
-        clientAccountProfile.quote_markup_percent = portalMarkup;
+      const portalQuoteSettings = await fetchClientPortalQuoteSettingsByEmail(cleanEmail);
+      if (clientAccountProfile && portalQuoteSettings) {
+        if (portalQuoteSettings.quote_markup_percent !== null) {
+          clientAccountProfile.quote_markup_percent = portalQuoteSettings.quote_markup_percent;
+        }
+        clientAccountProfile.use_fuel_surcharge_quote_tool = portalQuoteSettings.use_fuel_surcharge_quote_tool === true;
+      } else if (clientAccountProfile) {
+        clientAccountProfile.use_fuel_surcharge_quote_tool = false;
       }
       return clientAccountProfile;
     }
@@ -4627,9 +4702,13 @@
       if (!currentUserEmail) return;
       try {
         await getClientAccountProfileByEmail(currentUserEmail, true);
-        quoteUpdate();
+        const useFuelSurchargeTool = showSelectedQuoteTool();
+        if (!useFuelSurchargeTool) {
+          quoteUpdate();
+          if (!quoteView.classList.contains("hidden")) setTimeout(initQuoteCalculatorMap, 80);
+        }
       } catch (error) {
-        console.error("Could not load client quote mark up setting:", error);
+        console.error("Could not load client quote settings:", error);
       }
     }
 
@@ -4852,6 +4931,7 @@
         input.addEventListener("input", () => {
           if (input.id === "quote-pickup") quoteSelectedPlaces.pickup = null;
           if (input.id === "quote-delivery") quoteSelectedPlaces.delivery = null;
+          if (input.classList.contains("quote-stop-input")) input.quoteSelectedPlace = null;
         });
         input.addEventListener("change", quoteCalculateRoute);
         input.addEventListener("blur", quoteCalculateRoute);
@@ -4868,6 +4948,7 @@
         const place = autocomplete.getPlace();
         if (input.id === "quote-pickup") quoteSelectedPlaces.pickup = place;
         if (input.id === "quote-delivery") quoteSelectedPlaces.delivery = place;
+        if (input.classList.contains("quote-stop-input")) input.quoteSelectedPlace = place;
         quoteCalculateRoute();
       });
       input.dataset.quotePlacesAttached = "true";
@@ -4900,26 +4981,41 @@
       }
     }
 
+    function setQuoteAddStopButtonState() {
+      const button = quoteField("quote-add-stop-btn");
+      if (!button) return;
+      const stopCount = document.querySelectorAll(".quote-stop-row").length;
+      button.disabled = stopCount >= QUOTE_MAX_EXTRA_STOPS;
+      button.title = button.disabled
+        ? "This quote already has two delivery points"
+        : "Add a second delivery point";
+    }
+
     function quoteAddStop() {
-      if (!QUOTE_EXTRA_STOPS_ENABLED) {
-        setQuoteStatus("Extra stops are temporarily disabled while testing.", "warn");
-        return;
-      }
       const stops = quoteField("quote-stops");
       if (!stops) return;
+      if (stops.querySelectorAll(".quote-stop-row").length >= QUOTE_MAX_EXTRA_STOPS) {
+        setQuoteStatus("This quote already has two delivery points.", "warn");
+        setQuoteAddStopButtonState();
+        return;
+      }
       const id = "quote-stop-" + Date.now();
       const row = document.createElement("div");
       row.className = "quote-stop-row";
       row.id = id;
       row.innerHTML = `
         <div class="form-group">
-          <label>Extra Stop</label>
-          <input type="text" class="quote-stop-input" placeholder="Extra stop address" autocomplete="off">
+          <label>Delivery 1</label>
+          <input type="text" class="quote-stop-input" placeholder="First delivery address" autocomplete="off">
         </div>
         <button type="button" class="quote-icon-btn" onclick="quoteRemoveStop('${id}')">Remove</button>
       `;
       stops.appendChild(row);
-      quoteAttachAutocomplete(row.querySelector("input"));
+      const input = row.querySelector("input");
+      quoteAttachAutocomplete(input);
+      setQuoteAddStopButtonState();
+      setQuoteStatus("Second delivery added. Enter Delivery 1 here and the final destination below.", "ok");
+      if (input) input.focus();
       quoteUpdate();
     }
 
@@ -5053,11 +5149,51 @@
       const total = getQuoteTotalValue();
       const surcharges = getQuoteSurchargeNotes();
       const bookingInstructions = getQuoteBookingInstructions();
+      const extraStops = getQuoteExtraStops();
+      const finalDelivery = String(quoteField("quote-delivery") && quoteField("quote-delivery").value || "").trim();
 
       if (total) notes.push("Online quote generated: GBP " + total.toFixed(2) + " ex VAT");
       if (surcharges.length) notes.push("Quote surcharges: " + surcharges.join(", "));
+      if (extraStops.length) {
+        notes.push("DELIVERY 1: " + extraStops[0].address);
+        if (finalDelivery) notes.push("DELIVERY 2: " + finalDelivery);
+      }
       notes.push(...bookingInstructions);
       return notes.join("\n");
+    }
+
+    function getQuoteAddressDetails(address, place) {
+      const cleanAddress = String(address || "").trim();
+      const postcode = (
+        getGoogleAddressPart(place, "postal_code") ||
+        extractUkPostcodeFromText(cleanAddress)
+      ).trim().toUpperCase();
+      let town = (
+        getGoogleAddressPart(place, "postal_town") ||
+        getGoogleAddressPart(place, "locality") ||
+        getGoogleAddressPart(place, "administrative_area_level_3") ||
+        ""
+      ).trim();
+
+      if (!town && cleanAddress) {
+        const parts = cleanAddress.split(",").map((part) => part.trim()).filter(Boolean);
+        const postcodePartIndex = parts.findIndex((part) => !!extractUkPostcodeFromText(part));
+        if (postcodePartIndex > 0) town = parts[postcodePartIndex - 1];
+      }
+
+      return { address: cleanAddress, place: place || null, postcode, town };
+    }
+
+    function getQuoteExtraStops() {
+      return Array.from(document.querySelectorAll(".quote-stop-input"))
+        .map((input) => getQuoteAddressDetails(input.value, input.quoteSelectedPlace))
+        .filter((stop) => !!stop.address);
+    }
+
+    function applyQuoteAddressToAdditionalDelivery(address, place) {
+      const details = getQuoteAddressDetails(address, place);
+      setFieldValue("n_del_pc_2", details.postcode);
+      setFieldValue("n_del_town_2", details.town);
     }
 
     function quoteDateToBookingDateTime(dateValue, fallbackTime) {
@@ -5084,9 +5220,15 @@
 
       if (!validateQuoteBookingInstructions()) return;
 
+      const extraStops = getQuoteExtraStops();
       await openBookingForm(true);
       applyQuoteAddressToBooking("collection", collectionAddress, quoteSelectedPlaces.pickup);
-      applyQuoteAddressToBooking("delivery", deliveryAddress, quoteSelectedPlaces.delivery);
+      if (extraStops.length) {
+        applyQuoteAddressToBooking("delivery", extraStops[0].address, extraStops[0].place);
+        applyQuoteAddressToAdditionalDelivery(deliveryAddress, quoteSelectedPlaces.delivery);
+      } else {
+        applyQuoteAddressToBooking("delivery", deliveryAddress, quoteSelectedPlaces.delivery);
+      }
       setFieldValue("n_coll_dt", quoteDateToBookingDateTime(collectionDate, "09:00"));
       setFieldValue("n_del_dt", quoteDateToBookingDateTime(deliveryDate, getQuoteDeliveryTimeForBooking()));
       const total = getQuoteTotalValue();
@@ -5095,7 +5237,9 @@
         lockQuotedPriceField();
       }
       setFieldValue("n_job_notes", buildQuoteBookingNotes());
-      setStatus("Quote details and delivery timing have been copied into the booking form. Please check them before submitting.", "ok");
+      setStatus(extraStops.length
+        ? "Quote details and both deliveries have been copied into the booking form. Please check them before submitting."
+        : "Quote details and delivery timing have been copied into the booking form. Please check them before submitting.", "ok");
       const collectionField = document.getElementById("n_coll_address_search");
       if (collectionField) collectionField.focus();
     }
@@ -5108,6 +5252,7 @@
     function quoteRemoveStop(id) {
       const row = document.getElementById(id);
       if (row) row.remove();
+      setQuoteAddStopButtonState();
       quoteCalculateRoute();
       quoteUpdate();
     }
@@ -5222,6 +5367,7 @@
       });
       const stops = quoteField("quote-stops");
       if (stops) stops.innerHTML = "";
+      setQuoteAddStopButtonState();
       ["quote-tail-lift", "quote-pre10", "quote-parking", "quote-advanced-booking", "quote-booking-window", "quote-tb-timed-booking"].forEach((id) => {
         const field = quoteField(id);
         if (field) field.checked = false;
@@ -5711,7 +5857,9 @@
       }
 
       const suggestedName = buildTemplateNameFromBooking(collection, delivery);
-      const templateName = prompt("Template name", suggestedName);
+      const templateName = window.FrostOffice && typeof window.FrostOffice.promptText === "function"
+        ? await window.FrostOffice.promptText({ title: "Save booking template", message: "Template name", defaultValue: suggestedName, confirmLabel: "Save template" })
+        : window.prompt("Template name", suggestedName);
       if (templateName === null) return;
       const cleanName = String(templateName || "").trim() || suggestedName;
 
@@ -5761,7 +5909,9 @@
         }
 
         const suggestedName = buildTemplateNameFromBooking(addresses.collection, addresses.delivery);
-        const templateName = prompt("Template name", suggestedName);
+        const templateName = window.FrostOffice && typeof window.FrostOffice.promptText === "function"
+          ? await window.FrostOffice.promptText({ title: "Save booking template", message: "Template name", defaultValue: suggestedName, confirmLabel: "Save template" })
+          : window.prompt("Template name", suggestedName);
         if (templateName === null) return;
         const cleanName = String(templateName || "").trim() || suggestedName;
         setPreviousStatus("Creating template...", "warn");
@@ -6257,6 +6407,80 @@
         row.job_stage
       ].map((value) => String(value || "").trim().toLowerCase());
       return /\(\s*delivery\s*\)/i.test(name) || markerFields.includes("delivery");
+    }
+
+    function normalisePreviousBookingMergeValue(value) {
+      return String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+    }
+
+    function getPreviousBookingMergeKey(row) {
+      const ftsNumber = normalisePreviousBookingMergeValue(row && (row.fts_invoice_number || row.job_number));
+      if (!/^fts\s*-?\s*\d+$/.test(ftsNumber)) {
+        return `record:${String(row && row.id || "")}`;
+      }
+
+      const customer = normalisePreviousBookingMergeValue(row && row.customer_name)
+        .replace(/\s*\((?:collection|delivery)(?:\s+\d+\s*\/\s*\d+)?\)\s*$/i, "");
+      const customerReference = normalisePreviousBookingMergeValue(row && (
+        row.customers_own_invoice_number || row.customer_ref || row.coll_ref
+      ));
+      return `fts:${ftsNumber.replace(/\s+/g, "")}|customer:${customer}|ref:${customerReference}`;
+    }
+
+    function hasPreviousBookingMergeValue(value) {
+      return value !== null && value !== undefined && String(value).trim() !== "";
+    }
+
+    function scorePreviousBookingMergeRow(row) {
+      let score = 0;
+      if (!isDeliveryOnlyPreviousRow(row)) score += 100;
+      const price = String(row && row.total_price || "").trim().toUpperCase();
+      if (price === "PFJ" || parseMoneyValue(price) > 0) score += 40;
+      if (hasPreviousBookingMergeValue(row && row.customers_own_invoice_number)) score += 10;
+      return score;
+    }
+
+    function mergePreviousBookingRowsByFts(rows) {
+      const groups = new Map();
+      (Array.isArray(rows) ? rows : []).forEach((row) => {
+        if (!row) return;
+        const key = getPreviousBookingMergeKey(row);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(row);
+      });
+
+      const mergeFields = [
+        "pod_url", "podUrl", "pod_image_url", "pod_pdf_url", "proof_of_delivery_url",
+        "ack_timestamp", "ack_gps", "arrived_timestamp", "arrived_gps", "loaded_timestamp",
+        "del_arrived_timestamp", "tipped_timestamp", "tipped_gps", "pod_received_at"
+      ];
+
+      return Array.from(groups.values()).map((group) => {
+        if (group.length === 1) return group[0];
+        const ordered = [...group].sort((left, right) => {
+          const scoreDifference = scorePreviousBookingMergeRow(right) - scorePreviousBookingMergeRow(left);
+          if (scoreDifference) return scoreDifference;
+          return (Date.parse(left.created_at || "") || 0) - (Date.parse(right.created_at || "") || 0);
+        });
+        const merged = { ...ordered[0] };
+
+        mergeFields.forEach((field) => {
+          if (hasPreviousBookingMergeValue(merged[field])) return;
+          const source = ordered.find((row) => hasPreviousBookingMergeValue(row[field]));
+          if (source) merged[field] = source[field];
+        });
+
+        const completedSource = ordered.find((row) =>
+          /\b(completed|complete|delivered|pod received|pod_received|finished)\b/i.test(String(row.status || row.job_status || ""))
+        );
+        if (completedSource && !isCustomerCancelledBooking(merged)) {
+          merged.status = completedSource.status || completedSource.job_status || merged.status;
+        }
+        return merged;
+      });
     }
 
     function getPreviousBookingStatusText(row) {
@@ -6936,7 +7160,7 @@
           } else {
             console.warn("Could not filter cancelled jobs from active bookings:", cancelledResult.error);
           }
-          previousBookingRows = await addPodUrlsToPreviousRows(visibleRows);
+          previousBookingRows = mergePreviousBookingRowsByFts(await addPodUrlsToPreviousRows(visibleRows));
         }
         refreshPreviousBookingDisplay();
         if (!messagesView.classList.contains("hidden")) renderPortalMessageJobOptions();
