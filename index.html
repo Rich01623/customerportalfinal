@@ -2300,7 +2300,7 @@
               <section class="quote-card">
                 <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:14px;">
                   <h2 style="margin-bottom:0;">01. Routing</h2>
-                  <button type="button" class="action-btn secondary" id="quote-add-stop-btn" onclick="quoteAddStop()" title="Add a second delivery point">Add Stop</button>
+                  <button type="button" class="action-btn secondary" id="quote-add-stop-btn" onclick="quoteAddStop()" disabled title="Extra stops are temporarily disabled">Add Stop</button>
                 </div>
 
                 <div class="quote-row">
@@ -2779,7 +2779,7 @@
     const QUOTE_DEFAULT_MINIMUM = 280;
     const QUOTE_DEFAULT_MARKUP_PERCENT = 20;
     const QUOTE_FUEL_PRICE = 1.40;
-    const QUOTE_MAX_EXTRA_STOPS = 1;
+    const QUOTE_EXTRA_STOPS_ENABLED = false;
     const FUEL_SURCHARGE_QUOTE_TOOL_URL = "https://rich01623.github.io/Fuelsurcharge/";
     const HOME_ESTIMATED_REVENUE_PER_MILE = 2.35;
     const HOME_ESTIMATED_AVERAGE_ROAD_SPEED = 48;
@@ -4931,7 +4931,6 @@
         input.addEventListener("input", () => {
           if (input.id === "quote-pickup") quoteSelectedPlaces.pickup = null;
           if (input.id === "quote-delivery") quoteSelectedPlaces.delivery = null;
-          if (input.classList.contains("quote-stop-input")) input.quoteSelectedPlace = null;
         });
         input.addEventListener("change", quoteCalculateRoute);
         input.addEventListener("blur", quoteCalculateRoute);
@@ -4948,7 +4947,6 @@
         const place = autocomplete.getPlace();
         if (input.id === "quote-pickup") quoteSelectedPlaces.pickup = place;
         if (input.id === "quote-delivery") quoteSelectedPlaces.delivery = place;
-        if (input.classList.contains("quote-stop-input")) input.quoteSelectedPlace = place;
         quoteCalculateRoute();
       });
       input.dataset.quotePlacesAttached = "true";
@@ -4981,41 +4979,26 @@
       }
     }
 
-    function setQuoteAddStopButtonState() {
-      const button = quoteField("quote-add-stop-btn");
-      if (!button) return;
-      const stopCount = document.querySelectorAll(".quote-stop-row").length;
-      button.disabled = stopCount >= QUOTE_MAX_EXTRA_STOPS;
-      button.title = button.disabled
-        ? "This quote already has two delivery points"
-        : "Add a second delivery point";
-    }
-
     function quoteAddStop() {
-      const stops = quoteField("quote-stops");
-      if (!stops) return;
-      if (stops.querySelectorAll(".quote-stop-row").length >= QUOTE_MAX_EXTRA_STOPS) {
-        setQuoteStatus("This quote already has two delivery points.", "warn");
-        setQuoteAddStopButtonState();
+      if (!QUOTE_EXTRA_STOPS_ENABLED) {
+        setQuoteStatus("Extra stops are temporarily disabled while testing.", "warn");
         return;
       }
+      const stops = quoteField("quote-stops");
+      if (!stops) return;
       const id = "quote-stop-" + Date.now();
       const row = document.createElement("div");
       row.className = "quote-stop-row";
       row.id = id;
       row.innerHTML = `
         <div class="form-group">
-          <label>Delivery 1</label>
-          <input type="text" class="quote-stop-input" placeholder="First delivery address" autocomplete="off">
+          <label>Extra Stop</label>
+          <input type="text" class="quote-stop-input" placeholder="Extra stop address" autocomplete="off">
         </div>
         <button type="button" class="quote-icon-btn" onclick="quoteRemoveStop('${id}')">Remove</button>
       `;
       stops.appendChild(row);
-      const input = row.querySelector("input");
-      quoteAttachAutocomplete(input);
-      setQuoteAddStopButtonState();
-      setQuoteStatus("Second delivery added. Enter Delivery 1 here and the final destination below.", "ok");
-      if (input) input.focus();
+      quoteAttachAutocomplete(row.querySelector("input"));
       quoteUpdate();
     }
 
@@ -5149,51 +5132,11 @@
       const total = getQuoteTotalValue();
       const surcharges = getQuoteSurchargeNotes();
       const bookingInstructions = getQuoteBookingInstructions();
-      const extraStops = getQuoteExtraStops();
-      const finalDelivery = String(quoteField("quote-delivery") && quoteField("quote-delivery").value || "").trim();
 
       if (total) notes.push("Online quote generated: GBP " + total.toFixed(2) + " ex VAT");
       if (surcharges.length) notes.push("Quote surcharges: " + surcharges.join(", "));
-      if (extraStops.length) {
-        notes.push("DELIVERY 1: " + extraStops[0].address);
-        if (finalDelivery) notes.push("DELIVERY 2: " + finalDelivery);
-      }
       notes.push(...bookingInstructions);
       return notes.join("\n");
-    }
-
-    function getQuoteAddressDetails(address, place) {
-      const cleanAddress = String(address || "").trim();
-      const postcode = (
-        getGoogleAddressPart(place, "postal_code") ||
-        extractUkPostcodeFromText(cleanAddress)
-      ).trim().toUpperCase();
-      let town = (
-        getGoogleAddressPart(place, "postal_town") ||
-        getGoogleAddressPart(place, "locality") ||
-        getGoogleAddressPart(place, "administrative_area_level_3") ||
-        ""
-      ).trim();
-
-      if (!town && cleanAddress) {
-        const parts = cleanAddress.split(",").map((part) => part.trim()).filter(Boolean);
-        const postcodePartIndex = parts.findIndex((part) => !!extractUkPostcodeFromText(part));
-        if (postcodePartIndex > 0) town = parts[postcodePartIndex - 1];
-      }
-
-      return { address: cleanAddress, place: place || null, postcode, town };
-    }
-
-    function getQuoteExtraStops() {
-      return Array.from(document.querySelectorAll(".quote-stop-input"))
-        .map((input) => getQuoteAddressDetails(input.value, input.quoteSelectedPlace))
-        .filter((stop) => !!stop.address);
-    }
-
-    function applyQuoteAddressToAdditionalDelivery(address, place) {
-      const details = getQuoteAddressDetails(address, place);
-      setFieldValue("n_del_pc_2", details.postcode);
-      setFieldValue("n_del_town_2", details.town);
     }
 
     function quoteDateToBookingDateTime(dateValue, fallbackTime) {
@@ -5220,15 +5163,9 @@
 
       if (!validateQuoteBookingInstructions()) return;
 
-      const extraStops = getQuoteExtraStops();
       await openBookingForm(true);
       applyQuoteAddressToBooking("collection", collectionAddress, quoteSelectedPlaces.pickup);
-      if (extraStops.length) {
-        applyQuoteAddressToBooking("delivery", extraStops[0].address, extraStops[0].place);
-        applyQuoteAddressToAdditionalDelivery(deliveryAddress, quoteSelectedPlaces.delivery);
-      } else {
-        applyQuoteAddressToBooking("delivery", deliveryAddress, quoteSelectedPlaces.delivery);
-      }
+      applyQuoteAddressToBooking("delivery", deliveryAddress, quoteSelectedPlaces.delivery);
       setFieldValue("n_coll_dt", quoteDateToBookingDateTime(collectionDate, "09:00"));
       setFieldValue("n_del_dt", quoteDateToBookingDateTime(deliveryDate, getQuoteDeliveryTimeForBooking()));
       const total = getQuoteTotalValue();
@@ -5237,9 +5174,7 @@
         lockQuotedPriceField();
       }
       setFieldValue("n_job_notes", buildQuoteBookingNotes());
-      setStatus(extraStops.length
-        ? "Quote details and both deliveries have been copied into the booking form. Please check them before submitting."
-        : "Quote details and delivery timing have been copied into the booking form. Please check them before submitting.", "ok");
+      setStatus("Quote details and delivery timing have been copied into the booking form. Please check them before submitting.", "ok");
       const collectionField = document.getElementById("n_coll_address_search");
       if (collectionField) collectionField.focus();
     }
@@ -5252,7 +5187,6 @@
     function quoteRemoveStop(id) {
       const row = document.getElementById(id);
       if (row) row.remove();
-      setQuoteAddStopButtonState();
       quoteCalculateRoute();
       quoteUpdate();
     }
@@ -5367,7 +5301,6 @@
       });
       const stops = quoteField("quote-stops");
       if (stops) stops.innerHTML = "";
-      setQuoteAddStopButtonState();
       ["quote-tail-lift", "quote-pre10", "quote-parking", "quote-advanced-booking", "quote-booking-window", "quote-tb-timed-booking"].forEach((id) => {
         const field = quoteField(id);
         if (field) field.checked = false;
