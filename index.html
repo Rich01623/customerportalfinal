@@ -6,6 +6,7 @@
   <title>FROST Transport Booking Requests</title>
   <script src="office-suite-app.js" data-app="customer"></script>
   <script src="supabase.min.js"></script>
+  <script defer src="bulk-consignments.js"></script>
   <style>
     :root {
       --frost-red: #c1272d;
@@ -1845,6 +1846,7 @@
   <nav id="app-nav" class="app-nav hidden">
     <button type="button" data-nav="home" onclick="backToHome()">Home</button>
     <button type="button" data-nav="quote" onclick="openPlaceholderSection('quote')">Generate quote</button>
+    <button type="button" data-nav="bulk" id="bulk-consignments-nav" class="hidden" onclick="openBulkConsignmentsView()">Bulk Consignments</button>
     <button type="button" data-nav="form" class="hidden" onclick="openBookingForm(true)">Request a booking</button>
     <button type="button" data-nav="requests" onclick="openBookingStatusView()">Awaiting Approval</button>
     <button type="button" data-nav="templates" onclick="openTemplatesView()">Templates</button>
@@ -2128,6 +2130,30 @@
           </div>
         </div>
       </form>
+    </section>
+
+    <section id="bulk-consignments-view" class="panel hidden" aria-labelledby="bulk-consignments-title">
+      <div class="form-head"><h1 id="bulk-consignments-title">Bulk Consignments</h1></div>
+      <div class="lookup-body">
+        <p>Upload your file to submit one booking request per consignment. The filename supplies the booking customer name, and every job uses the DJL Petfoods to IPN route below.</p>
+        <div class="two-col" style="margin:18px 0; gap:18px;">
+          <div><strong>Collection</strong><p>DJL Petfoods<br>4 moorbridge, Bingham<br>Nottinghamshire, NG13 8GG</p></div>
+          <div><strong>Delivery</strong><p>IPN<br>Dalton airfield, Thirsk<br>North Yorkshire, YO7 3HE</p></div>
+        </div>
+        <div class="form-group">
+          <label for="bulk-consignments-file">Upload consignments</label>
+          <input id="bulk-consignments-file" type="file" accept=".xlsx,.xls,.csv,.ods,.tsv" aria-describedby="bulk-consignments-help" onchange="handleBulkConsignmentUpload()">
+          <p id="bulk-consignments-help">Selecting a file submits its rows automatically. Excel (.xlsx or .xls), CSV and ODS are supported, up to 10 MB / 2,000 jobs. For Google Sheets, choose File → Download → Microsoft Excel or CSV. Missing booking fields are allowed. Dates are read as displayed in UK day/month/year order (DD/MM/YYYY).</p>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="action-btn secondary" onclick="backToHome()">Back</button>
+          <button type="button" class="action-btn primary hidden" id="bulk-consignments-retry" onclick="submitBulkConsignmentRows()">Retry unsent rows</button>
+          <button type="button" class="action-btn primary" onclick="openBookingStatusView()">View Awaiting Approval</button>
+        </div>
+        <p id="bulk-consignments-status" class="status" role="status" aria-live="polite"></p>
+        <progress id="bulk-consignments-progress" class="hidden" max="1" value="0" style="width:100%; margin:12px 0;" aria-label="Consignment submission progress"></progress>
+        <div id="bulk-consignments-results" class="booking-result-list"></div>
+      </div>
     </section>
 
     <section id="requests-view" class="panel hidden">
@@ -2672,6 +2698,11 @@
     const homeView = document.getElementById("home-view");
     const formView = document.getElementById("form-view");
     const requestsView = document.getElementById("requests-view");
+    const bulkConsignmentsView = document.getElementById("bulk-consignments-view");
+    let bulkConsignmentsState = null;
+    let bulkConsignmentsBusy = false;
+    let bulkConsignmentsGeneration = 0;
+    let bulkSpreadsheetLibraryPromise = null;
     const previousView = document.getElementById("previous-view");
     const quoteView = document.getElementById("quote-view");
     const standardQuoteTool = document.getElementById("standard-quote-tool");
@@ -2910,6 +2941,7 @@
       homeView.classList.add("hidden");
       formView.classList.add("hidden");
       requestsView.classList.add("hidden");
+      bulkConsignmentsView.classList.add("hidden");
       previousView.classList.add("hidden");
       quoteView.classList.add("hidden");
       templatesView.classList.add("hidden");
@@ -3285,7 +3317,7 @@
       try {
         const saved = localStorage.getItem(ACTIVE_VIEW_STORAGE_KEY);
         if (saved === "previous") return "active";
-        return ["home", "form", "requests", "active", "cancelled", "history", "quote", "templates", "messages", "settings", "contact", "terms"].includes(saved) ? saved : "home";
+        return ["home", "form", "requests", "active", "cancelled", "history", "quote", "bulk", "templates", "messages", "settings", "contact", "terms"].includes(saved) ? saved : "home";
       } catch (error) {
         return "home";
       }
@@ -3297,6 +3329,7 @@
       else if (view === "requests") openBookingStatusView();
       else if (view === "active" || view === "cancelled" || view === "history") openPreviousBookingsView(view);
       else if (view === "quote") openPlaceholderSection("quote");
+      else if (view === "bulk") openBulkConsignmentsView();
       else if (view === "templates") openTemplatesView();
       else if (view === "messages") openMessagesView();
       else if (view === "settings") openSettingsView();
@@ -3318,6 +3351,7 @@
 
     function setSignedOutView() {
       portalAccessCheckToken += 1;
+      resetBulkConsignments();
       clearTemplateAccountState();
       currentUserId = "";
       currentUserEmail = "";
@@ -3456,6 +3490,8 @@
       startHomeClock();
       clientAccountProfileEmail = currentUserEmail;
       clientAccountProfile = authorisedProfile;
+      resetBulkConsignments();
+      document.getElementById("bulk-consignments-nav").classList.toggle("hidden", !canShowBulkConsignments());
       await loadCurrentClientAccountProfileForQuote();
       if (portalAccessCheckToken !== checkToken) return;
       startPortalMessagePolling();
@@ -3506,6 +3542,173 @@
       await prefillBookingCustomerFromAccount();
       const collectionSearchField = document.getElementById("n_coll_address_search");
       if (collectionSearchField) collectionSearchField.focus();
+    }
+
+    function canShowBulkConsignments() {
+      return !!currentUserId && currentUserEmail === "accounts@djlpetfoods.co.uk";
+    }
+
+    function resetBulkConsignments() {
+      bulkConsignmentsGeneration += 1;
+      bulkConsignmentsState = null;
+      bulkConsignmentsBusy = false;
+      document.getElementById("bulk-consignments-nav").classList.add("hidden");
+      document.getElementById("bulk-consignments-file").value = "";
+      document.getElementById("bulk-consignments-file").disabled = false;
+      document.getElementById("bulk-consignments-retry").classList.add("hidden");
+      document.getElementById("bulk-consignments-progress").classList.add("hidden");
+      document.getElementById("bulk-consignments-results").replaceChildren();
+      setBulkConsignmentsStatus("", "");
+    }
+
+    function setBulkConsignmentsStatus(message, type) {
+      const status = document.getElementById("bulk-consignments-status");
+      status.textContent = message;
+      status.className = "status" + (type ? " " + type : "");
+    }
+
+    function openBulkConsignmentsView() {
+      if (!canShowBulkConsignments()) { backToHome(); return; }
+      rememberView("bulk");
+      hideAppViews();
+      bulkConsignmentsView.classList.remove("hidden");
+    }
+
+    function loadBulkSpreadsheetLibrary() {
+      if (window.XLSX) return Promise.resolve(window.XLSX);
+      if (!bulkSpreadsheetLibraryPromise) {
+        bulkSpreadsheetLibraryPromise = new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "xlsx.full.min.js";
+          script.onload = () => window.XLSX ? resolve(window.XLSX) : reject(new Error("The spreadsheet reader could not be loaded."));
+          script.onerror = () => { script.remove(); reject(new Error("The spreadsheet reader could not be loaded. Refresh and try again.")); };
+          document.head.appendChild(script);
+        }).catch(error => { bulkSpreadsheetLibraryPromise = null; throw error; });
+      }
+      return bulkSpreadsheetLibraryPromise;
+    }
+
+    async function handleBulkConsignmentUpload() {
+      if (!canShowBulkConsignments() || bulkConsignmentsBusy) return;
+      const input = document.getElementById("bulk-consignments-file");
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const generation = ++bulkConsignmentsGeneration;
+      const ownerId = currentUserId;
+      bulkConsignmentsBusy = true;
+      bulkConsignmentsState = null;
+      input.disabled = true;
+      document.getElementById("bulk-consignments-retry").classList.add("hidden");
+      document.getElementById("bulk-consignments-results").replaceChildren();
+      setBulkConsignmentsStatus("Reading consignments...", "warn");
+      try {
+        const library = await loadBulkSpreadsheetLibrary();
+        const parsed = await BulkConsignments.readFile(file, library);
+        const batchKey = await BulkConsignments.batchKey(parsed, window.crypto);
+        if (generation !== bulkConsignmentsGeneration || currentUserId !== ownerId) return;
+        bulkConsignmentsState = { parsed, batchKey, ownerId, results: new Map() };
+        renderBulkConsignmentResults();
+      } catch (error) {
+        if (generation === bulkConsignmentsGeneration) setBulkConsignmentsStatus(error.message || "The file could not be read.", "error");
+      } finally {
+        if (generation === bulkConsignmentsGeneration) { bulkConsignmentsBusy = false; input.disabled = false; input.value = ""; }
+      }
+      if (generation === bulkConsignmentsGeneration && bulkConsignmentsState) await submitBulkConsignmentRows();
+    }
+
+    function renderBulkConsignmentResults() {
+      const container = document.getElementById("bulk-consignments-results");
+      container.replaceChildren();
+      const state = bulkConsignmentsState;
+      if (!state) return;
+      const fragment = document.createDocumentFragment();
+      for (const row of state.parsed.rows) {
+        const result = state.results.get(row.row_number);
+        const card = document.createElement("article");
+        card.className = "booking-result";
+        const title = document.createElement("div");
+        title.className = "booking-result-title";
+        title.textContent = `${state.parsed.customerName} — ${row.customers_own_invoice_number || "No customer reference"}`;
+        const summary = document.createElement("p");
+        const labels = { submitted: "Submitted — awaiting approval", already_submitted: "Already submitted", failed: "Not submitted" };
+        summary.textContent = (result ? labels[result.status] || "Not submitted" : "Waiting to submit")
+          + (result && result.booking_request_id ? ` · Request ${result.booking_request_id}` : "");
+        const details = document.createElement("p");
+        details.textContent = `DJL Petfoods (NG13 8GG) to IPN (YO7 3HE) · Collection: ${row.coll_datetime ? row.coll_datetime.replace("T", " ") : "Not supplied"} · Delivery: ${row.del_datetime ? row.del_datetime.replace("T", " ") : "Not supplied"} · Price: ${row.total_price == null ? "Not supplied" : "£" + row.total_price}`;
+        const source = document.createElement("small");
+        source.textContent = `${state.parsed.filename}, ${row.sheet_name}, row ${row.sheet_row}`;
+        card.append(title, summary, details, source);
+        const messages = [...row.warnings, ...(result && result.message ? [result.message] : [])];
+        if (messages.length) {
+          const note = document.createElement("p");
+          note.textContent = messages.join(" ");
+          card.appendChild(note);
+        }
+        fragment.appendChild(card);
+      }
+      container.appendChild(fragment);
+    }
+
+    async function submitBulkConsignmentRows() {
+      const state = bulkConsignmentsState;
+      if (!canShowBulkConsignments() || bulkConsignmentsBusy || !state || state.ownerId !== currentUserId) return;
+      const generation = bulkConsignmentsGeneration;
+      const stillCurrent = () => generation === bulkConsignmentsGeneration && state === bulkConsignmentsState && currentUserId === state.ownerId && canShowBulkConsignments();
+      const input = document.getElementById("bulk-consignments-file");
+      const retry = document.getElementById("bulk-consignments-retry");
+      const progress = document.getElementById("bulk-consignments-progress");
+      const complete = row => ["submitted", "already_submitted"].includes((state.results.get(row.row_number) || {}).status);
+      const remaining = state.parsed.rows.filter(row => !complete(row));
+      if (!remaining.length) return;
+      bulkConsignmentsBusy = true;
+      input.disabled = true;
+      retry.classList.add("hidden");
+      progress.classList.remove("hidden");
+      progress.max = state.parsed.rows.length;
+      progress.value = state.parsed.rows.filter(complete).length;
+      setBulkConsignmentsStatus("Checking upload access...", "warn");
+      try {
+        const access = await sb.rpc("can_upload_bulk_consignments");
+        if (access.error) throw access.error;
+        if (!stillCurrent()) return;
+        if (access.data !== true) throw new Error("Bulk Consignments is not enabled for this account.");
+        for (let offset = 0; offset < remaining.length; offset += 50) {
+          if (!stillCurrent()) return;
+          const chunk = remaining.slice(offset, offset + 50);
+          setBulkConsignmentsStatus(`Submitting consignments ${offset + 1}–${Math.min(offset + 50, remaining.length)} of ${remaining.length}...`, "warn");
+          const { data, error } = await sb.rpc("submit_bulk_consignments", {
+            p_filename: state.parsed.filename, p_batch_key: state.batchKey, p_rows: chunk
+          });
+          if (!stillCurrent()) return;
+          if (error) throw error;
+          if (!data || !Array.isArray(data.results)) throw new Error("The server did not confirm this batch. Retry to check it without creating duplicates.");
+          for (const row of chunk) {
+            const result = data.results.find(item => item.row_number === row.row_number);
+            state.results.set(row.row_number, result || { status: "failed", message: "No confirmation received. Retry this row." });
+          }
+          progress.value = state.parsed.rows.filter(complete).length;
+          renderBulkConsignmentResults();
+        }
+        const saved = state.parsed.rows.filter(complete).length;
+        const failed = state.parsed.rows.length - saved;
+        const ignored = state.parsed.ignoredSheets.length ? ` Sheets without consignment headers were skipped: ${state.parsed.ignoredSheets.join(", ")}.` : "";
+        setBulkConsignmentsStatus(`${saved} of ${state.parsed.rows.length} consignments submitted or already received.${failed ? ` ${failed} could not be submitted; use Retry unsent rows.` : " View Awaiting Approval to see the booking requests."}${ignored}`, failed ? "error" : "ok");
+        // The same lookup used by quoted bookings identifies these requests by the authenticated email.
+        if (!requestsView.classList.contains("hidden")) lookupBookingRequests();
+      } catch (error) {
+        if (!stillCurrent()) return;
+        const message = String(error.message || error);
+        const unavailable = /PGRST202|schema cache|could not find the function|function.*does not exist/i.test(message + " " + (error.code || ""));
+        setBulkConsignmentsStatus(unavailable
+          ? "Bulk upload is not available on the server yet. Contact Frost Transport to enable it. Your file has not been cleared."
+          : `Upload interrupted: ${message} Retry unsent rows to continue; received rows will not be duplicated.`, "error");
+      } finally {
+        if (stillCurrent()) {
+          bulkConsignmentsBusy = false;
+          input.disabled = false;
+          retry.classList.toggle("hidden", state.parsed.rows.every(complete));
+        }
+      }
     }
 
     function openBookingStatusView() {
@@ -6783,6 +6986,7 @@
               <div><b>Delivery time:</b> ${formatDisplayDate(row.del_datetime)}</div>
               <div><b>Vehicle:</b> ${escapeHtml(row.vehicle_type || "-")}</div>
               <div><b>Submitted:</b> ${formatDisplayDate(row.created_at || row.submitted_at)}</div>
+              <div><b>Customer reference:</b> ${escapeHtml(row.customers_own_invoice_number || "-")}</div>
             </div>
           </div>`;
       }).join("");
