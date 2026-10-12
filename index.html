@@ -73,6 +73,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     const extraStops=['collection','delivery'].map(kind=>({kind,postCode:text(row[kind==='collection'?'coll_postcode_2':'del_postcode_2']).toUpperCase(),town:text(row[kind==='collection'?'coll_town_2':'del_town_2'])})).filter(stop=>stop.postCode||stop.town);
     if(!api.features.version && extraStops.length)throw new Error('Additional route details need their Reborn service activation. This request has not been sent.');
     if(!api.features.version && isPF)throw new Error('Palletforce bookings need their Reborn service activation. This request has not been sent.');
+    if(isPF && !api.features.palletforce)throw new Error('Palletforce portal bookings are currently disabled. This request has not been sent.');
     const collectionName = text(row.coll_cust_name) || text(row.coll_address_search) || text(row.coll_street);
     const deliveryName = text(row.del_cust_name) || text(row.del_address_search) || text(row.del_street);
     if (!collectionName || !deliveryName) throw new Error('Enter collection and delivery site names or addresses.');
@@ -98,7 +99,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       id: row.id, customer_name: client?.name || '', customer_email: row.booking_email || '', customer_phone: row.booking_telephone || '',
       request_status: ({submitted: 'new', declined: 'rejected'})[row.status] || row.status,
       status: row.status === 'accepted' ? 'accepted' : row.status,
-      record_source: 'request', request_number: row.request_number, fts_invoice_number: row.request_number,
+      record_source: 'request', request_number: row.request_number, fts_invoice_number: row.internal_invoice_number || '',
       planner_job_id: row.planner_job_id, coll_cust_name: row.collection_name, coll_postcode: row.collection_post_code,
       coll_street: row.collection_street, coll_town: row.collection_town, coll_county: row.collection_county,
       coll_phone: row.collection_telephone, coll_email: row.collection_email, coll_ref: row.collection_reference,
@@ -178,6 +179,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   }
   async function requests() {
     const generation=api.sessionGeneration,client=api.bootstrap?.client;
+    if(api.features.requestDetails) {
+      const rows=await call('customer_portal_list_request_details');
+      return (rows || []).map(row=>mapRequest(row,client));
+    }
     // Reborn's existing RLS returns only the signed-in customer's own requests.
     const result = await api.raw.from('customer_booking_requests').select('*').order('submitted_at', {ascending:false});
     assertSession(generation);
@@ -3562,7 +3567,7 @@ body[data-office-app="customer"] .warning-modal-backdrop {
               </div>
               <div class="form-group">
                 <label for="n_fts_invoice_number">FTS Invoice Number</label>
-                <input type="text" id="n_fts_invoice_number" readonly placeholder="Auto generated">
+                <input type="text" id="n_fts_invoice_number" readonly placeholder="Assigned after approval">
               </div>
             </div>
 
@@ -4935,7 +4940,7 @@ const SUPABASE_URL = FrostReborn.configuration.url;
       if (collectionSearchField) collectionSearchField.focus();
     }
 
-    function canShowBulkConsignments() { return !!currentUserId && currentUserEmail === "accounts@djlpetfoods.co.uk"; }
+    function canShowBulkConsignments() { return !!currentUserId && FrostReborn.features.bulkUploads === true && currentUserEmail === "accounts@djlpetfoods.co.uk"; }
 
     function resetBulkConsignments() {
       bulkConsignmentsGeneration += 1;
@@ -7855,8 +7860,8 @@ const SUPABASE_URL = FrostReborn.configuration.url;
     }
 
     function getPendingRequestTitle(row) {
-      return row.fts_invoice_number || row.job_number || "FTS pending";
-    }
+  return row.fts_invoice_number || (row.request_number ? 'Booking request ' + row.request_number : 'Invoice number assigned after approval');
+}
 
     function getTodayStorageDateKey() {
       const now = new Date();
