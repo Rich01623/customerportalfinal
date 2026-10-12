@@ -155,7 +155,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   }
   async function call(name, args = {}) {
     const allowed = new Set(['customer_portal_bootstrap', 'customer_portal_create_quote', 'customer_portal_submit_booking_request', 'customer_portal_list_booking_requests', 'customer_portal_list_completed_jobs',
-      'customer_portal_feature_status','customer_portal_submit_request_v2','customer_portal_update_request','customer_portal_update_job','customer_portal_cancel_booking','customer_portal_list_jobs',
+      'customer_portal_feature_status','customer_portal_list_request_details','customer_portal_submit_request_v2','customer_portal_update_request','customer_portal_update_job','customer_portal_cancel_booking','customer_portal_list_jobs',
       'customer_portal_list_templates','customer_portal_save_template','customer_portal_delete_template','customer_portal_get_preferences','customer_portal_save_preferences','customer_portal_touch_presence','customer_portal_list_contacts',
       'customer_portal_send_message','customer_portal_list_messages','customer_portal_mark_messages_read','customer_portal_can_upload_bulk','customer_portal_submit_bulk']);
     if (!allowed.has(name)) throw new Error(unavailable);

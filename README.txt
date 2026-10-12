@@ -1,27 +1,36 @@
 FROST CUSTOMER PORTAL — GITHUB FILES
-Prepared 12 October 2026
+Updated 12 October 2026
 
-Upload the contents of this folder to the GitHub repository folder that contains
-the customer portal's existing index.html. Keep the existing GitHub Pages branch,
-publishing folder and custom-domain settings.
+Upload these files into the existing customer portal publishing folder.
+Keep the repository's GitHub Pages branch, folder and domain settings.
 
-index.html is the complete customer portal. Its scripts, styles, logos,
-background and spreadsheet reader are embedded, so separate JavaScript, CSS
-and image files are not needed. SHEETJS-LICENSE.txt supplies the spreadsheet
-library's licence. .nojekyll is a hidden GitHub Pages static-site marker.
+index.html contains the portal's scripts, styles, logos, background and
+spreadsheet reader. Separate JavaScript, CSS and image uploads are not required.
+SHEETJS-LICENSE.txt supplies the library licence. .nojekyll is a hidden static-site
+marker. Existing supporting files in the repository can remain in place.
 
-This page connects to TMS Reborn using the existing migrated customer logins.
-Internet access is needed for sign-in, bookings and Google Maps. The yellow
-replica notice has been removed.
+The portal connects to Frost's TMS Reborn database using the migrated customer
+logins. Internet access is needed for sign-in, bookings and Google Maps.
+The yellow replica bar has been removed.
 
-The login, quote and booking flow has been tested by the user. The additional
-features prepared earlier still require Reborn database service activation
-(update 076). A read-only check on 12 October found that the new feature service
-is not yet available. Uploading these website files does not activate that
-service. Database SQL, desktop installers, test data and build sources are kept
-in the development project and should not be uploaded with the website files.
+Frost's customer portal services were activated on 12 October 2026. They support
+customers' own job tracking, guarded booking edits/cancellations, account
+saved templates/settings, private messages/files and office business contacts.
+Palletforce portal requests and DJL bulk uploads remain hidden and disabled,
+including server-side submission blocks. Existing office PF work is unaffected.
+
+FTS invoice numbers are assigned by Reborn when a booking is approved. A pending
+request shows its separate BR booking reference, not a BR invoice number.
+
+Office app 2.0.36 adds the blue Planner booking-request notification and
+Messages > Customers. Windows 2.0.36 is published in TSS Control.
+
+Do not upload database SQL, app installers, credentials, tests or development
+sources to this website repository.
 
 Development project:
 /Users/robinson/Desktop/PersonalProjects/FrostCustomerPortal0810
 
-The existing public portal has not been changed by preparing this folder.
+Published repository: https://github.com/Rich01623/customerportalfinal
+Published page: https://rich01623.github.io/customerportalfinal/
+The old portal's separate Supabase database has not been changed.
