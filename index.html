@@ -347,9 +347,50 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   function connect(factory, options) {
     api.raw = factory(configuration.url, configuration.key, options);
     const rawAuth = api.raw.auth;
+    // Keep a sign-out behind any session installation already in progress.
+    let authMutation = Promise.resolve();
+    function mutateAuth(action) {
+      const result = authMutation.then(action);
+      authMutation = result.catch(() => {});
+      return result;
+    }
+    async function signIn(args = {}) {
+      clearSession();
+      const generation = api.sessionGeneration;
+      try {
+        const username = text(args.email).toLowerCase();
+        const password = typeof args.password === 'string' ? args.password : '';
+        if (!username || !password) throw new Error('Email and password are required.');
+        const response = await fetch(`${configuration.url}/functions/v1/customer-portal-auth`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: configuration.key, Authorization: `Bearer ${configuration.key}` },
+          body: JSON.stringify({ company: configuration.company, username, password })
+        });
+        const payload = await response.json().catch(() => null);
+        assertSession(generation);
+        if (!response.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : 'Customer portal sign-in failed. Please try again.');
+        const session = payload?.session;
+        if (typeof session?.access_token !== 'string' || !session.access_token.trim()
+          || typeof session?.refresh_token !== 'string' || !session.refresh_token.trim()) {
+          throw new Error('The secure session could not be opened. Please try signing in again.');
+        }
+        return await mutateAuth(async () => {
+          assertSession(generation);
+          const result = await rawAuth.setSession({ access_token: session.access_token, refresh_token: session.refresh_token });
+          // A newer login can begin while setSession is awaiting its user check.
+          if (api.sessionGeneration !== generation && result?.data?.session) await rawAuth.signOut({ scope: 'local' });
+          assertSession(generation);
+          if (result?.error) return result;
+          if (!result?.data?.session) throw new Error('The secure session could not be opened. Please try signing in again.');
+          return result;
+        });
+      } catch (error) {
+        return { data: { user: null, session: null }, error: error instanceof Error ? error : new Error('Customer portal sign-in failed. Please try again.') };
+      }
+    }
     const auth = new Proxy(rawAuth, {get(target,key) {
-      if (key === 'signOut') return async () => {clearSession();return target.signOut({scope:'local'});};
-      if (key === 'signInWithPassword') return async args => {clearSession();return target.signInWithPassword(args);};
+      if (key === 'signOut') return async () => {clearSession();return mutateAuth(() => target.signOut({scope:'local'}));};
+      if (key === 'signInWithPassword') return signIn;
       const value=target[key]; return typeof value==='function' ? value.bind(target) : value;
     }});
     return {
@@ -4671,7 +4712,7 @@ const SUPABASE_URL = FrostReborn.configuration.url;
     }
 
     async function loadHomeSnapshot() {
-      if (!currentUserEmail || currentHomeStatsHidden) return;
+      if (!currentUserId || currentHomeStatsHidden) return;
       const requestId = homeSnapshotRequestId + 1;
       homeSnapshotRequestId = requestId;
       setHomeSnapshotLoading();
@@ -4789,14 +4830,22 @@ const SUPABASE_URL = FrostReborn.configuration.url;
       applyHomeStatsVisibility();
     }
 
-    async function getAuthorisedClientProfile(email) {
+    function getCustomerContactEmail(bootstrap, authEmail) {
+  return [bootstrap?.account?.username, bootstrap?.client?.email, authEmail]
+    .map(value => String(value || '').trim().toLowerCase())
+    .find(value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) && !/@(?:[^@]+\.)?tms-reborn\.invalid$/.test(value)) || '';
+}
+
+    async function getAuthorisedClientProfile(email, expectedUserId) {
   const bootstrap = await FrostReborn.bootstrapAccount();
   const {data,error} = await sb.auth.getUser();
   if(error) throw error;
-  if (String(data.user?.email || '').toLowerCase() !== String(email).toLowerCase()) return null;
-  FrostReborn.userId = data.user.id; FrostReborn.userEmail = data.user.email;
+  const user = data?.user;
+  const authEmail = String(user?.email || '').trim().toLowerCase();
+  if (!user?.id || !authEmail || authEmail !== String(email || '').trim().toLowerCase() || (expectedUserId && String(user.id) !== String(expectedUserId))) return null;
+  FrostReborn.userId = user.id; FrostReborn.userEmail = user.email;
   try { await FrostReborn.migrateLocalData(); } catch(error) {console.warn('Could not sync this browser’s saved templates/settings:',error.message);}
-  return {customer_name:bootstrap.client.name,accounts_email:email,accounts_tel:bootstrap.client.telephone,booking_address:bootstrap.client.address,use_fuel_surcharge_quote_tool:false};
+  return {customer_name:bootstrap.client.name,accounts_email:getCustomerContactEmail(bootstrap, authEmail),accounts_tel:bootstrap.client.telephone,booking_address:bootstrap.client.address,use_fuel_surcharge_quote_tool:false};
 }
 
     async function rejectUnauthorisedPortalUser(message) {
@@ -4834,15 +4883,16 @@ const SUPABASE_URL = FrostReborn.configuration.url;
       }
 
       const signedInEmail = String(effectiveSession && effectiveSession.user && effectiveSession.user.email || "").trim().toLowerCase();
+      const signedInUserId = String(effectiveSession && effectiveSession.user && effectiveSession.user.id || "").trim();
 
-      if (!signedInEmail) {
+      if (!signedInEmail || !signedInUserId) {
         await rejectUnauthorisedPortalUser("This account is not authorised to access the booking portal.");
         return;
       }
 
       let authorisedProfile = null;
       try {
-        authorisedProfile = await getAuthorisedClientProfile(signedInEmail);
+        authorisedProfile = await getAuthorisedClientProfile(signedInEmail, signedInUserId);
       } catch (error) {
         const message = error && error.message ? error.message : String(error);
         if (portalAccessCheckToken !== checkToken) return;
@@ -4859,8 +4909,8 @@ const SUPABASE_URL = FrostReborn.configuration.url;
       }
 
       clearTemplateAccountState();
-      currentUserId = String(effectiveSession && effectiveSession.user && effectiveSession.user.id || "").trim();
-      currentUserEmail = String(effectiveSession && effectiveSession.user && effectiveSession.user.email || "").trim().toLowerCase();
+      currentUserId = signedInUserId;
+      currentUserEmail = authorisedProfile.accounts_email;
       currentUserName = getClientDisplayName(effectiveSession && effectiveSession.user);
       currentCompanyLogoDataUrl = getClientCompanyLogo(effectiveSession && effectiveSession.user);
       currentHomeBgIntensity = getClientHomeBgIntensity(effectiveSession && effectiveSession.user);
@@ -6039,14 +6089,14 @@ const SUPABASE_URL = FrostReborn.configuration.url;
     }
 
     async function fetchClientAccountProfilesByEmail(emailPattern, limit) {
-  if (!FrostReborn.bootstrap || !currentUserEmail) return [];
-  if (String(emailPattern).toLowerCase() !== currentUserEmail.toLowerCase()) return [];
+  if (!FrostReborn.bootstrap || !currentUserId) return [];
+  if (String(emailPattern || '').toLowerCase() !== currentUserEmail.toLowerCase()) return [];
   return [clientAccountProfile];
 }
 
     async function fetchClientPortalQuoteSettingsByEmail() { return {use_fuel_surcharge_quote_tool:false}; }
 
-    async function getClientAccountProfileByEmail(email) { return String(email).toLowerCase() === currentUserEmail.toLowerCase() ? clientAccountProfile : null; }
+    async function getClientAccountProfileByEmail(email) { return currentUserId && FrostReborn.bootstrap && String(email || '').toLowerCase() === currentUserEmail.toLowerCase() ? clientAccountProfile : null; }
 
     function getQuoteMarkupPercent() {
       const value = Number(clientAccountProfile && clientAccountProfile.quote_markup_percent);
@@ -6065,14 +6115,15 @@ const SUPABASE_URL = FrostReborn.configuration.url;
 }
 
     async function prefillBookingCustomerFromAccount() {
+      const ownerId = currentUserId;
       const email = currentUserEmail;
-      if (!email) return;
+      if (!ownerId) return;
 
       setFieldValue("n_cust_email", email);
 
       try {
         const profile = await getClientAccountProfileByEmail(email);
-        if (currentEditRequest || currentUserEmail !== email) return;
+        if (currentEditRequest || currentUserId !== ownerId || currentUserEmail !== email) return;
 
         if (profile) {
           if (!valueOf("n_cust_name")) setFieldValue("n_cust_name", profile.customer_name);
@@ -7953,7 +8004,7 @@ const SUPABASE_URL = FrostReborn.configuration.url;
       lastLookupEmail = email;
       lookupResults.innerHTML = "";
 
-      if (!email) {
+      if (!currentUserId) {
         setLookupStatus("Sign in to view bookings awaiting approval.", "error");
         return;
       }
@@ -8230,7 +8281,7 @@ const SUPABASE_URL = FrostReborn.configuration.url;
           ? "cancelled jobs"
           : "active bookings";
 
-      if (!email) {
+      if (!currentUserId) {
         setPreviousStatus(`Sign in to view ${sectionName}.`, "error");
         return;
       }
@@ -8348,7 +8399,7 @@ const SUPABASE_URL = FrostReborn.configuration.url;
             refreshPreviousBookingDisplay();
             setPreviousStatus("Booking updated.", "ok");
           }, 650);
-        } else if (currentEditRequest && lastLookupEmail) {
+        } else if (currentEditRequest && currentUserId) {
           const editedEmail = valueOf("n_cust_email") || lastLookupEmail;
           currentEditRequest = null;
           setTimeout(() => {
